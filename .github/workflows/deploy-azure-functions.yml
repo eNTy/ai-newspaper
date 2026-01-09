@@ -13,6 +13,9 @@ env:
   DOTNET_VERSION: '8.0.x'
   AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
   AZURE_LOCATION: 'westeurope'
+  AZURE_FUNCTIONAPP_RSS_PROCESSOR: ai-newspaper-rss-processor
+  AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: ai-newspaper-article-simplifier
+  AZURE_FUNCTIONAPP_IMAGE_GENERATOR: ai-newspaper-image-generator
 
 jobs:
   build-and-deploy:
@@ -41,13 +44,13 @@ jobs:
     - name: Deploy RssProcessor to Azure
       uses: Azure/functions-action@v1
       with:
-        app-name: ${{ secrets.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}
+        app-name: ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}
         package: lambdas/RssProcessor/output
 
     - name: Configure RssProcessor App Settings
       run: |
         az functionapp config appsettings set \
-          --name ${{ secrets.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
+          --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
 
@@ -60,13 +63,13 @@ jobs:
     - name: Deploy ArticleSimplifier to Azure
       uses: Azure/functions-action@v1
       with:
-        app-name: ${{ secrets.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}
+        app-name: ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}
         package: lambdas/ArticleSimplifier/output
 
     - name: Configure ArticleSimplifier App Settings
       run: |
         az functionapp config appsettings set \
-          --name ${{ secrets.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
+          --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
 
@@ -79,13 +82,13 @@ jobs:
     - name: Deploy ImageGenerator to Azure
       uses: Azure/functions-action@v1
       with:
-        app-name: ${{ secrets.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}
+        app-name: ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}
         package: lambdas/ImageGenerator/output
 
     - name: Configure ImageGenerator App Settings
       run: |
         az functionapp config appsettings set \
-          --name ${{ secrets.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
+          --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
 

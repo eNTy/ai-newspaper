@@ -4,7 +4,7 @@
 # Configuration
 $ResourceGroup = "ai-newspaper-rg"
 $Location = "westeurope"
-$StorageAccount = "ai-newspaper-storage"
+$StorageAccount = "ainewspaperstorage"
 
 # Function App Names
 $RssProcessorApp = "ai-newspaper-rss-processor"
