@@ -239,4 +239,51 @@ public class NewspaperOrchestratorFunction
 
         return response;
     }
+
+    // Timer trigger - runs daily at 5AM
+    [Function("DailyNewspaperScheduler")]
+    public async Task RunDailyScheduler(
+        [TimerTrigger("0 0 5 * * *")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(RunDailyScheduler));
+        logger.LogInformation("Daily newspaper scheduler triggered at: {time}", DateTime.UtcNow);
+
+        var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL")
+            ?? "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php";
+
+        var storageFolder = Environment.GetEnvironmentVariable("DEFAULT_STORAGE_FOLDER")
+            ?? "images";
+
+        // Define the age groups to process
+        var ageGroups = new[] { 8, 12, 16 };
+
+        // Start orchestrations for each age group in parallel
+        var orchestrationTasks = new List<Task<string>>();
+
+        foreach (var age in ageGroups)
+        {
+            var request = new OrchestratorRequest
+            {
+                RssUrl = rssUrl,
+                AudienceAge = age,
+                StorageFolder = $"{storageFolder}/age-{age}/{DateTime.UtcNow:yyyy-MM-dd}"
+            };
+
+            logger.LogInformation("Starting orchestration for age {age}", age);
+
+            var task = client.ScheduleNewOrchestrationInstanceAsync(
+                nameof(NewspaperBatchOrchestrator),
+                request);
+
+            orchestrationTasks.Add(task);
+        }
+
+        var instanceIds = await Task.WhenAll(orchestrationTasks);
+
+        logger.LogInformation("Started {count} orchestrations. Instance IDs: {ids}",
+            instanceIds.Length,
+            string.Join(", ", instanceIds));
+    }
 }

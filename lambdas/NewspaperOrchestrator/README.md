@@ -98,7 +98,22 @@ azurite
 
 ## API Usage
 
-### Start Batch Processing
+### Automatic Daily Processing
+
+The orchestrator includes a timer trigger that automatically runs every day at 5:00 AM UTC. It processes three age groups in parallel:
+- Age 8 (young children)
+- Age 12 (pre-teens)
+- Age 16 (teenagers)
+
+Each batch is stored in a separate folder: `images/age-{age}/{yyyy-MM-dd}/`
+
+The timer uses the following environment variables:
+- `DEFAULT_RSS_URL` - RSS feed to process (default: Czech News RSS)
+- `DEFAULT_STORAGE_FOLDER` - Base storage folder (default: "images")
+
+### Manual Batch Processing
+
+You can also trigger batch processing manually via the HTTP endpoint:
 
 ```bash
 POST http://localhost:7074/api/StartNewspaperBatch
@@ -182,6 +197,8 @@ Environment variables in `local.settings.json`:
 | `RSS_PROCESSOR_URL` | URL of RssProcessor function | `http://localhost:7071/api/RssProcessor` |
 | `ARTICLE_SIMPLIFIER_URL` | URL of ArticleSimplifier function | `http://localhost:7072/api/ArticleSimplifier` |
 | `IMAGE_GENERATOR_URL` | URL of ImageGenerator function | `http://localhost:7073/api/ImageGenerator` |
+| `DEFAULT_RSS_URL` | Default RSS feed for scheduled runs | `https://www.ceskenoviny.cz/sluzby/rss/zpravy.php` |
+| `DEFAULT_STORAGE_FOLDER` | Default storage folder for scheduled runs | `images` |
 
 ## Production Deployment
 
@@ -194,16 +211,23 @@ az functionapp config appsettings set \
   --settings \
     "RSS_PROCESSOR_URL=https://ai-newspaper-rss-processor.azurewebsites.net/api/RssProcessor" \
     "ARTICLE_SIMPLIFIER_URL=https://ai-newspaper-article-simplifier.azurewebsites.net/api/ArticleSimplifier" \
-    "IMAGE_GENERATOR_URL=https://ai-newspaper-image-generator.azurewebsites.net/api/ImageGenerator"
+    "IMAGE_GENERATOR_URL=https://ai-newspaper-image-generator.azurewebsites.net/api/ImageGenerator" \
+    "DEFAULT_RSS_URL=https://www.ceskenoviny.cz/sluzby/rss/zpravy.php" \
+    "DEFAULT_STORAGE_FOLDER=images"
 ```
+
+**Note**: The GitHub Actions workflow automatically configures these settings during deployment.
 
 ## Features
 
+- **Automatic Daily Scheduling**: Timer trigger runs at 5:00 AM UTC every day
+- **Multi-Age Processing**: Automatically processes for ages 8, 12, and 16 in parallel
 - **Parallel Processing**: Articles are simplified and illustrated in parallel for performance
 - **Durable Execution**: State is persisted, surviving function restarts
 - **Status Tracking**: Query orchestration status at any time
 - **Automatic Retries**: Built-in retry policies for transient failures
 - **Replay Safety**: Orchestrator code is deterministic and replay-safe
+- **Organized Storage**: Each age group and date gets its own folder
 
 ## Error Handling
 
