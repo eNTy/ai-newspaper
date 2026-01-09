@@ -10,13 +10,15 @@ on:
   workflow_dispatch:
 
 env:
+  DEFAULT_RSS_URL: 'https://www.ceskenoviny.cz/sluzby/rss/zpravy.php'
+  DEFAULT_STORAGE_FOLDER: 'pipeline-runs'
   DOTNET_VERSION: '8.0.x'
   AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
   AZURE_LOCATION: 'westeurope'
-  AZURE_FUNCTIONAPP_RSS_PROCESSOR: ai-newspaper-rss-processor
-  AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: ai-newspaper-article-simplifier
-  AZURE_FUNCTIONAPP_IMAGE_GENERATOR: ai-newspaper-image-generator
-  AZURE_FUNCTIONAPP_ORCHESTRATOR: ai-newspaper-orchestrator
+  AZURE_FUNCTIONAPP_RSS_PROCESSOR: 'ai-newspaper-rss-processor'
+  AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: 'ai-newspaper-article-simplifier'
+  AZURE_FUNCTIONAPP_IMAGE_GENERATOR: 'ai-newspaper-image-generator'
+  AZURE_FUNCTIONAPP_ORCHESTRATOR: 'ai-newspaper-orchestrator'
 
 jobs:
   build-and-deploy:

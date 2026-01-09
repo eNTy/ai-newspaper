@@ -254,7 +254,7 @@ public class NewspaperOrchestratorFunction
             ?? "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php";
 
         var storageFolder = Environment.GetEnvironmentVariable("DEFAULT_STORAGE_FOLDER")
-            ?? "images";
+            ?? "pipeline-runs";
 
         // Define the age groups to process
         var ageGroups = new[] { 8, 12, 16 };
@@ -268,7 +268,7 @@ public class NewspaperOrchestratorFunction
             {
                 RssUrl = rssUrl,
                 AudienceAge = age,
-                StorageFolder = $"{storageFolder}/age-{age}/{DateTime.UtcNow:yyyy-MM-dd}"
+                StorageFolder = $"{storageFolder}/{DateTime.UtcNow:yyyy-MM-dd}/age-{age}"
             };
 
             logger.LogInformation("Starting orchestration for age {age}", age);
