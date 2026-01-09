@@ -6,15 +6,17 @@ using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using OpenAI.Chat;
+using OpenAI.Images;
 
 namespace ImageGenerator;
 
 public class ImageGeneratorFunction
 {
     private readonly ILogger _logger;
-    private readonly string _claudeApiKey;
+    private readonly ChatClient _chatClient;
+    private readonly ImageClient _imageClient;
     private readonly string _storageConnectionString;
-    private const string CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -23,8 +25,12 @@ public class ImageGeneratorFunction
     public ImageGeneratorFunction(ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<ImageGeneratorFunction>();
-        _claudeApiKey = Environment.GetEnvironmentVariable("CLAUDE_API_KEY")
-            ?? throw new InvalidOperationException("CLAUDE_API_KEY environment variable is not set");
+
+        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+            ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is not set");
+
+        _chatClient = new ChatClient(model: "gpt-4o", apiKey: apiKey);
+        _imageClient = new ImageClient(model: "dall-e-3", apiKey: apiKey);
         _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
             ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set");
     }
@@ -55,8 +61,8 @@ public class ImageGeneratorFunction
             var imagePrompt = GenerateImagePrompt(request.ArticleTitle, request.SimplifiedArticle, request.AudienceAge);
             _logger.LogInformation("Generated image prompt");
 
-            // Step 2: Use Claude AI to generate the image
-            var imageData = await GenerateImageWithClaudeAsync(imagePrompt);
+            // Step 2: Use Azure OpenAI to generate the image
+            var imageData = await GenerateImageWithOpenAIAsync(imagePrompt);
             _logger.LogInformation("Generated image ({Size} bytes)", imageData.Length);
 
             // Step 3: Upload to Azure Storage
@@ -112,55 +118,57 @@ Requirements:
 - No text or words in the image";
     }
 
-    private async Task<byte[]> GenerateImageWithClaudeAsync(string imagePrompt)
+    private async Task<byte[]> GenerateImageWithOpenAIAsync(string imagePrompt)
     {
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("x-api-key", _claudeApiKey);
-        httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-        httpClient.Timeout = TimeSpan.FromMinutes(2); // Image generation can take longer
-
-        // Note: Claude API doesn't natively support image generation
-        // We'll use Claude to generate a detailed image description and then use a placeholder
-        // In production, you would integrate with DALL-E, Stable Diffusion, or another image generation API
-
-        var claudeRequest = new
+        try
         {
-            model = "claude-sonnet-4-5-20250929",
-            max_tokens = 500,
-            messages = new[]
-            {
-                new
+            // Step 1: Use GPT-4o to refine the image prompt
+            var refinementPrompt = $@"{imagePrompt}
+
+Please refine this into a concise DALL-E prompt (max 400 characters) for a high-quality,
+family-friendly illustration. Focus on visual elements, composition, and style.";
+
+            var chatCompletion = await _chatClient.CompleteChatAsync(
+                [new UserChatMessage(refinementPrompt)],
+                new ChatCompletionOptions
                 {
-                    role = "user",
-                    content = $@"{imagePrompt}
+                    MaxOutputTokenCount = 150,
+                    Temperature = 0.8f
+                });
 
-Please provide a detailed, vivid description of an illustration that would perfectly accompany this article.
-Describe colors, composition, main elements, and style in detail so an artist could create it.
-Keep it appropriate for the target age group."
-                }
-            }
-        };
+            var refinedPrompt = chatCompletion.Value.Content[0].Text.Trim();
 
-        var jsonContent = JsonSerializer.Serialize(claudeRequest);
-        var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            _logger.LogInformation("Refined image prompt: {Prompt}", refinedPrompt);
 
-        var response = await httpClient.PostAsync(CLAUDE_API_URL, content);
-        var responseBody = await response.Content.ReadAsStringAsync();
+            // Step 2: Generate actual image with DALL-E
+            var imageGeneration = await _imageClient.GenerateImageAsync(
+                refinedPrompt,
+                new ImageGenerationOptions
+                {
+                    Size = GeneratedImageSize.W1024xH1024,
+                    Quality = GeneratedImageQuality.Standard,
+                    ResponseFormat = GeneratedImageFormat.Uri
+                });
 
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Claude API error: {StatusCode} - {ResponseBody}", response.StatusCode, responseBody);
-            throw new HttpRequestException($"Claude API returned {response.StatusCode}: {responseBody}");
+            var imageUrl = imageGeneration.Value.ImageUri;
+
+            _logger.LogInformation("Generated image URL: {Url}", imageUrl);
+
+            // Step 3: Download the generated image
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(2);
+            var imageBytes = await httpClient.GetByteArrayAsync(imageUrl);
+
+            _logger.LogInformation("Downloaded image: {Size} bytes", imageBytes.Length);
+
+            return imageBytes;
         }
-
-        var claudeResponse = JsonSerializer.Deserialize<ClaudeApiResponse>(responseBody);
-        var imageDescription = claudeResponse?.Content?[0].Text ?? "A colorful illustration";
-
-        _logger.LogInformation("Image description from Claude: {Description}", imageDescription);
-
-        // For now, create a simple placeholder image with the description
-        // In production, you would call an actual image generation API here (DALL-E, Midjourney, etc.)
-        return CreatePlaceholderImage(imageDescription);
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OpenAI API error: {Message}", ex.Message);
+            _logger.LogWarning("Falling back to placeholder image due to error");
+            return CreatePlaceholderImage($"Image generation failed: {ex.Message}");
+        }
     }
 
     private byte[] CreatePlaceholderImage(string description)
@@ -201,7 +209,15 @@ Keep it appropriate for the target age group."
         var sanitizedTitle = string.Join("_", articleTitle.Split(Path.GetInvalidFileNameChars()));
         if (sanitizedTitle.Length > 50) sanitizedTitle = sanitizedTitle.Substring(0, 50);
 
-        var fileName = $"{storageFolder}/{sanitizedTitle}_{Guid.NewGuid():N}.svg";
+        // Detect file type (PNG for DALL-E images, SVG for placeholder)
+        var isPng = imageData.Length > 4 &&
+                    imageData[0] == 0x89 && imageData[1] == 0x50 &&
+                    imageData[2] == 0x4E && imageData[3] == 0x47;
+
+        var extension = isPng ? "png" : "svg";
+        var contentType = isPng ? "image/png" : "image/svg+xml";
+
+        var fileName = $"{storageFolder}/{sanitizedTitle}_{Guid.NewGuid():N}.{extension}";
         var blobClient = containerClient.GetBlobClient(fileName);
 
         // Upload the image
@@ -211,7 +227,7 @@ Keep it appropriate for the target age group."
         // Set content type
         await blobClient.SetHttpHeadersAsync(new Azure.Storage.Blobs.Models.BlobHttpHeaders
         {
-            ContentType = "image/svg+xml"
+            ContentType = contentType
         });
 
         return blobClient.Uri.ToString();
@@ -232,46 +248,4 @@ public class ImageGeneratorResponse
     public int AudienceAge { get; set; }
     public string ImageUrl { get; set; } = string.Empty;
     public string StorageFolder { get; set; } = string.Empty;
-}
-
-public class ClaudeApiResponse
-{
-    [JsonPropertyName("content")]
-    public ClaudeContent[]? Content { get; set; }
-
-    [JsonPropertyName("id")]
-    public string? Id { get; set; }
-
-    [JsonPropertyName("model")]
-    public string? Model { get; set; }
-
-    [JsonPropertyName("role")]
-    public string? Role { get; set; }
-
-    [JsonPropertyName("stop_reason")]
-    public string? StopReason { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-
-    [JsonPropertyName("usage")]
-    public ClaudeUsage? Usage { get; set; }
-}
-
-public class ClaudeContent
-{
-    [JsonPropertyName("text")]
-    public string? Text { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-}
-
-public class ClaudeUsage
-{
-    [JsonPropertyName("input_tokens")]
-    public int InputTokens { get; set; }
-
-    [JsonPropertyName("output_tokens")]
-    public int OutputTokens { get; set; }
 }

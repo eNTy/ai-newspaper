@@ -55,7 +55,7 @@ jobs:
         az functionapp config appsettings set \
           --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
@@ -79,7 +79,7 @@ jobs:
         az functionapp config appsettings set \
           --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
@@ -103,7 +103,7 @@ jobs:
         az functionapp config appsettings set \
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \

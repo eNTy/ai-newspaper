@@ -6,14 +6,14 @@ using HtmlAgilityPack;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using OpenAI.Chat;
 
 namespace ArticleSimplifier;
 
 public class ArticleSimplifierFunction
 {
     private readonly ILogger _logger;
-    private readonly string _claudeApiKey;
-    private const string CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+    private readonly ChatClient _chatClient;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -22,8 +22,11 @@ public class ArticleSimplifierFunction
     public ArticleSimplifierFunction(ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<ArticleSimplifierFunction>();
-        _claudeApiKey = Environment.GetEnvironmentVariable("CLAUDE_API_KEY")
-            ?? throw new InvalidOperationException("CLAUDE_API_KEY environment variable is not set");
+
+        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+            ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is not set");
+
+        _chatClient = new ChatClient(model: "gpt-4o", apiKey: apiKey);
     }
 
     [Function("ArticleSimplifier")]
@@ -59,8 +62,8 @@ public class ArticleSimplifierFunction
                 return emptyResponse;
             }
 
-            // Step 2: Use Claude AI to simplify the article
-            var simplifiedArticle = await SimplifyArticleWithClaudeAsync(articleContent, request.AudienceAge);
+            // Step 2: Use Azure OpenAI to simplify the article
+            var simplifiedArticle = await SimplifyArticleWithOpenAIAsync(articleContent, request.AudienceAge);
             _logger.LogInformation("Article simplified successfully");
 
             // Step 3: Return the simplified article
@@ -168,12 +171,8 @@ public class ArticleSimplifierFunction
         return (title, content);
     }
 
-    private async Task<string> SimplifyArticleWithClaudeAsync(string articleContent, int audienceAge)
+    private async Task<string> SimplifyArticleWithOpenAIAsync(string articleContent, int audienceAge)
     {
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("x-api-key", _claudeApiKey);
-        httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-
         var ageDescription = audienceAge switch
         {
             < 8 => "young children (kindergarten level)",
@@ -200,40 +199,23 @@ Original Article:
 
 Simplified Article:";
 
-        var claudeRequest = new
+        try
         {
-            model = "claude-sonnet-4-5-20250929",
-            max_tokens = 300,
-            messages = new[]
-            {
-                new
+            var completion = await _chatClient.CompleteChatAsync(
+                [new UserChatMessage(prompt)],
+                new ChatCompletionOptions
                 {
-                    role = "user",
-                    content = prompt
-                }
-            }
-        };
+                    MaxOutputTokenCount = 300,
+                    Temperature = 0.7f
+                });
 
-        var jsonContent = JsonSerializer.Serialize(claudeRequest);
-        var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
-        var response = await httpClient.PostAsync(CLAUDE_API_URL, content);
-        var responseBody = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Claude API error: {StatusCode} - {ResponseBody}", response.StatusCode, responseBody);
-            throw new HttpRequestException($"Claude API returned {response.StatusCode}: {responseBody}");
+            return completion.Value.Content[0].Text.Trim();
         }
-
-        var claudeResponse = JsonSerializer.Deserialize<ClaudeApiResponse>(responseBody);
-
-        if (claudeResponse?.Content == null || claudeResponse.Content.Length == 0)
+        catch (Exception ex)
         {
-            throw new InvalidOperationException("Invalid response from Claude API");
+            _logger.LogError(ex, "OpenAI API error: {Message}", ex.Message);
+            throw new HttpRequestException($"OpenAI API error: {ex.Message}", ex);
         }
-
-        return claudeResponse.Content[0].Text?.Trim() ?? string.Empty;
     }
 }
 
@@ -249,46 +231,4 @@ public class ArticleSimplifierResponse
     public int AudienceAge { get; set; }
     public string Title { get; set; } = string.Empty;
     public string SimplifiedArticle { get; set; } = string.Empty;
-}
-
-public class ClaudeApiResponse
-{
-    [JsonPropertyName("content")]
-    public ClaudeContent[]? Content { get; set; }
-
-    [JsonPropertyName("id")]
-    public string? Id { get; set; }
-
-    [JsonPropertyName("model")]
-    public string? Model { get; set; }
-
-    [JsonPropertyName("role")]
-    public string? Role { get; set; }
-
-    [JsonPropertyName("stop_reason")]
-    public string? StopReason { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-
-    [JsonPropertyName("usage")]
-    public ClaudeUsage? Usage { get; set; }
-}
-
-public class ClaudeContent
-{
-    [JsonPropertyName("text")]
-    public string? Text { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-}
-
-public class ClaudeUsage
-{
-    [JsonPropertyName("input_tokens")]
-    public int InputTokens { get; set; }
-
-    [JsonPropertyName("output_tokens")]
-    public int OutputTokens { get; set; }
 }

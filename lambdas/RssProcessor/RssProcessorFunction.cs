@@ -7,14 +7,14 @@ using System.Xml;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using OpenAI.Chat;
 
 namespace RssProcessor;
 
 public class RssProcessorFunction
 {
     private readonly ILogger _logger;
-    private readonly string _claudeApiKey;
-    private const string CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+    private readonly ChatClient _chatClient;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -23,8 +23,11 @@ public class RssProcessorFunction
     public RssProcessorFunction(ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<RssProcessorFunction>();
-        _claudeApiKey = Environment.GetEnvironmentVariable("CLAUDE_API_KEY")
-            ?? throw new InvalidOperationException("CLAUDE_API_KEY environment variable is not set");
+
+        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+            ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is not set");
+
+        _chatClient = new ChatClient(model: "gpt-4o", apiKey: apiKey);
     }
 
     [Function("RssProcessor")]
@@ -64,9 +67,9 @@ public class RssProcessorFunction
                 return emptyResponse;
             }
 
-            // Step 2: Ask Claude AI to select top 3 articles
-            var topArticles = await GetTopArticlesFromClaudeAsync(feedItems, request.AudienceAge);
-            _logger.LogInformation($"Claude AI selected {topArticles.Count} top articles");
+            // Step 2: Ask Azure OpenAI to select top 3 articles
+            var topArticles = await GetTopArticlesFromOpenAIAsync(feedItems, request.AudienceAge);
+            _logger.LogInformation($"Azure OpenAI selected {topArticles.Count} top articles");
 
             // Step 3: Return the top 3 URLs
             var response = req.CreateResponse(HttpStatusCode.OK);
@@ -112,13 +115,8 @@ public class RssProcessorFunction
         }).ToList();
     }
 
-    private async Task<List<ArticleResult>> GetTopArticlesFromClaudeAsync(List<RssFeedItem> items, int audienceAge)
+    private async Task<List<ArticleResult>> GetTopArticlesFromOpenAIAsync(List<RssFeedItem> items, int audienceAge)
     {
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("x-api-key", _claudeApiKey);
-        httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-
-        // Prepare the article list for Claude
         var articlesList = new StringBuilder();
         for (int i = 0; i < items.Count; i++)
         {
@@ -145,64 +143,49 @@ Please select the TOP 3 articles that would be most interesting and appropriate 
 Respond with ONLY a JSON array containing exactly 3 numbers (the article numbers from the list above), like this: [1, 5, 8]
 Do not include any other text or explanation.";
 
-        var claudeRequest = new
+        try
         {
-            model = "claude-sonnet-4-5-20250929",
-            max_tokens = 100,
-            messages = new[]
-            {
-                new
+            var completion = await _chatClient.CompleteChatAsync(
+                [new UserChatMessage(prompt)],
+                new ChatCompletionOptions
                 {
-                    role = "user",
-                    content = prompt
-                }
-            }
-        };
+                    MaxOutputTokenCount = 100,
+                    Temperature = 0.7f
+                });
 
-        var jsonContent = JsonSerializer.Serialize(claudeRequest);
-        var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            var selectedIndicesText = completion.Value.Content[0].Text.Trim();
 
-        var response = await httpClient.PostAsync(CLAUDE_API_URL, content);
-        var responseBody = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation("OpenAI response: {Response}", selectedIndicesText);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Claude API error: {StatusCode} - {ResponseBody}", response.StatusCode, responseBody);
-            throw new HttpRequestException($"Claude API returned {response.StatusCode}: {responseBody}");
-        }
-
-        var claudeResponse = JsonSerializer.Deserialize<ClaudeApiResponse>(responseBody);
-
-        if (claudeResponse?.Content == null || claudeResponse.Content.Length == 0)
-        {
-            throw new InvalidOperationException("Invalid response from Claude API");
-        }
-
-        var selectedIndicesText = claudeResponse.Content[0].Text?.Trim() ?? "[]";
-
-        // Extract JSON array from response (handles cases where Claude might add extra text)
-        var startIdx = selectedIndicesText.IndexOf('[');
-        var endIdx = selectedIndicesText.LastIndexOf(']');
-        if (startIdx >= 0 && endIdx > startIdx)
-        {
-            selectedIndicesText = selectedIndicesText.Substring(startIdx, endIdx - startIdx + 1);
-        }
-
-        var selectedIndices = JsonSerializer.Deserialize<List<int>>(selectedIndicesText) ?? new List<int>();
-
-        // Convert 1-based indices to 0-based and get the articles
-        var topArticles = selectedIndices
-            .Where(idx => idx > 0 && idx <= items.Count)
-            .Select(idx => items[idx - 1])
-            .Take(3)
-            .Select(item => new ArticleResult
+            // Extract JSON array from response (handles cases where AI might add extra text)
+            var startIdx = selectedIndicesText.IndexOf('[');
+            var endIdx = selectedIndicesText.LastIndexOf(']');
+            if (startIdx >= 0 && endIdx > startIdx)
             {
-                Title = item.Title,
-                Url = item.Link
-            })
-            .ToList();
+                selectedIndicesText = selectedIndicesText.Substring(startIdx, endIdx - startIdx + 1);
+            }
 
-        return topArticles;
+            var selectedIndices = JsonSerializer.Deserialize<List<int>>(selectedIndicesText) ?? new List<int>();
+
+            // Convert 1-based indices to 0-based and get the articles
+            var topArticles = selectedIndices
+                .Where(idx => idx > 0 && idx <= items.Count)
+                .Select(idx => items[idx - 1])
+                .Take(3)
+                .Select(item => new ArticleResult
+                {
+                    Title = item.Title,
+                    Url = item.Link
+                })
+                .ToList();
+
+            return topArticles;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OpenAI API error: {Message}", ex.Message);
+            throw new HttpRequestException($"OpenAI API error: {ex.Message}", ex);
+        }
     }
 }
 
@@ -232,46 +215,4 @@ public class RssFeedItem
     public string Link { get; set; } = string.Empty;
     public DateTime PublishDate { get; set; }
     public List<string> Categories { get; set; } = new();
-}
-
-public class ClaudeApiResponse
-{
-    [JsonPropertyName("content")]
-    public ClaudeContent[]? Content { get; set; }
-
-    [JsonPropertyName("id")]
-    public string? Id { get; set; }
-
-    [JsonPropertyName("model")]
-    public string? Model { get; set; }
-
-    [JsonPropertyName("role")]
-    public string? Role { get; set; }
-
-    [JsonPropertyName("stop_reason")]
-    public string? StopReason { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-
-    [JsonPropertyName("usage")]
-    public ClaudeUsage? Usage { get; set; }
-}
-
-public class ClaudeContent
-{
-    [JsonPropertyName("text")]
-    public string? Text { get; set; }
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-}
-
-public class ClaudeUsage
-{
-    [JsonPropertyName("input_tokens")]
-    public int InputTokens { get; set; }
-
-    [JsonPropertyName("output_tokens")]
-    public int OutputTokens { get; set; }
 }

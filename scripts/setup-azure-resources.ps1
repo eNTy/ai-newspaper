@@ -227,14 +227,17 @@ Write-Host ""
 Write-Host "5. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
 Write-Host "   Value: $OrchestratorApp"
 Write-Host ""
-Write-Host "6. CLAUDE_API_KEY" -ForegroundColor Cyan
-Write-Host "   Value: <your-claude-api-key>"
+Write-Host "6. OPENAI_API_KEY" -ForegroundColor Cyan
+Write-Host "   Value: <your-openai-api-key-from-platform.openai.com>"
+Write-Host ""
+Write-Host "Note: Get your OpenAI API key from https://platform.openai.com/api-keys" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Green
 Write-Host "Next Steps" -ForegroundColor Green
 Write-Host "==================================" -ForegroundColor Green
-Write-Host "1. Add the above secrets to GitHub"
-Write-Host "2. Push code to trigger deployment"
-Write-Host "3. Monitor deployment in GitHub Actions tab"
+Write-Host "1. Get your OpenAI API key from https://platform.openai.com/api-keys"
+Write-Host "2. Add the above secrets to GitHub"
+Write-Host "3. Push code to trigger deployment"
+Write-Host "4. Monitor deployment in GitHub Actions tab"
 Write-Host ""
 Read-Host "Press Enter to exit"

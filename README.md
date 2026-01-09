@@ -1,22 +1,22 @@
 # AI Newspaper
 
-An AI-powered newspaper generation system using Azure Functions and Claude AI to create age-appropriate news content.
+An AI-powered newspaper generation system using Azure Functions and OpenAI to create age-appropriate news content.
 
 ## Project Structure
 
 - `lambdas/` - Azure Functions for AI processing
   - `RssProcessor/` - Fetches RSS feeds and selects top 3 articles for target age
   - `ArticleSimplifier/` - Simplifies articles for specific age groups
-  - `ImageGenerator/` - Generates illustrations for articles using Claude AI
+  - `ImageGenerator/` - Generates illustrations for articles using DALL-E 3
   - `NewspaperOrchestrator/` - Orchestrates batch processing of all three functions
 - `infrastructure/` - VM and infrastructure configuration
 - `scripts/` - Utility scripts
 
 ## Features
 
-- **RSS Processing**: Fetches news from any RSS feed and uses Claude AI to select the most appropriate articles for a target age group
+- **RSS Processing**: Fetches news from any RSS feed and uses OpenAI (GPT-4o) to select the most appropriate articles for a target age group
 - **Article Simplification**: Rewrites articles in age-appropriate language (maintains original language, no translation)
-- **Image Generation**: Creates illustrations based on article content (with Claude AI descriptions, ready for DALL-E integration)
+- **Image Generation**: Creates actual PNG illustrations using DALL-E 3
 - **Batch Orchestration**: Durable function that processes all 3 articles in parallel for optimal performance
 - **Azure Storage**: Stores generated images in Azure Blob Storage
 
@@ -26,7 +26,7 @@ An AI-powered newspaper generation system using Azure Functions and Claude AI to
 
 - .NET 8.0 SDK
 - Azure Functions Core Tools v4
-- Claude API Key (get from https://console.anthropic.com/)
+- OpenAI API Key (get from https://platform.openai.com/)
 - Azure Storage Account (or Azurite for local development)
 
 ### Local Development Setup
@@ -42,10 +42,11 @@ An AI-powered newspaper generation system using Azure Functions and Claude AI to
    # For each function (RssProcessor, ArticleSimplifier, ImageGenerator):
    cd lambdas/<FunctionName>
 
-   # Copy the template and add your API key
+   # Copy the template and add your OpenAI API key
    cp local.settings.json.template local.settings.json
 
-   # Edit local.settings.json and replace "your-claude-api-key-here" with your actual key
+   # Edit local.settings.json and add:
+   # - OPENAI_API_KEY: Your OpenAI API key (starts with sk-)
    ```
 
 3. Build and run:
