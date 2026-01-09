@@ -5,7 +5,8 @@
       "Bash(func start:*)",
       "Bash(curl:*)",
       "Bash(git add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

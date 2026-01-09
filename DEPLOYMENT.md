@@ -13,6 +13,13 @@ This guide walks you through setting up CI/CD with GitHub Actions to automatical
 
 Run the automated setup script:
 
+### Windows (PowerShell - Recommended)
+```powershell
+cd scripts
+.\setup-azure-resources.ps1
+```
+
+### Linux/Mac (Bash)
 ```bash
 cd scripts
 chmod +x setup-azure-resources.sh

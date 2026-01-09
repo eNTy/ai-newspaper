@@ -3,8 +3,6 @@
 # Azure Resources Setup Script for AI Newspaper
 # This script creates all necessary Azure resources for the project
 
-set -e
-
 # Configuration
 RESOURCE_GROUP="ai-newspaper-rg"
 LOCATION="westeurope"
@@ -16,6 +14,17 @@ RSS_PROCESSOR_APP="ai-newspaper-rss-processor"
 ARTICLE_SIMPLIFIER_APP="ai-newspaper-article-simplifier"
 IMAGE_GENERATOR_APP="ai-newspaper-image-generator"
 
+# Error handling function
+check_error() {
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "Error: $1"
+        echo "Press Enter to exit..."
+        read
+        exit 1
+    fi
+}
+
 echo "=================================="
 echo "AI Newspaper - Azure Setup"
 echo "=================================="
@@ -25,12 +34,24 @@ echo ""
 if ! command -v az &> /dev/null; then
     echo "Error: Azure CLI is not installed. Please install it first."
     echo "Visit: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    read -p "Press Enter to exit..."
     exit 1
 fi
 
-# Login to Azure
-echo "Logging in to Azure..."
-az login
+# Check if already logged in
+echo "Checking Azure login status..."
+if ! az account show &> /dev/null; then
+    echo "Not logged in to Azure. Opening browser for login..."
+    echo ""
+    if ! az login; then
+        echo ""
+        echo "Error: Azure login failed."
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
+else
+    echo "Already logged in to Azure."
+fi
 
 # Select subscription (if multiple)
 echo ""
@@ -51,6 +72,7 @@ echo "Creating resource group: $RESOURCE_GROUP..."
 az group create \
     --name "$RESOURCE_GROUP" \
     --location "$LOCATION"
+check_error "Failed to create resource group"
 
 # Create Storage Account
 echo ""
@@ -169,3 +191,5 @@ echo "1. Add the above secrets to GitHub"
 echo "2. Push code to trigger deployment"
 echo "3. Monitor deployment in GitHub Actions tab"
 echo ""
+echo "Press Enter to exit..."
+read
