@@ -7,7 +7,6 @@
 RESOURCE_GROUP="ai-newspaper-rg"
 LOCATION="westeurope"
 STORAGE_ACCOUNT="ainewspaperstorage$(date +%s)"
-APP_SERVICE_PLAN="ai-newspaper-plan"
 
 # Function App Names
 RSS_PROCESSOR_APP="ai-newspaper-rss-processor"
@@ -91,15 +90,9 @@ STORAGE_CONNECTION=$(az storage account show-connection-string \
     --query connectionString \
     --output tsv)
 
-# Create App Service Plan (Consumption/Serverless)
+# Note: Using Consumption plan (serverless) - no separate plan creation needed
 echo ""
-echo "Creating App Service Plan: $APP_SERVICE_PLAN..."
-az functionapp plan create \
-    --name "$APP_SERVICE_PLAN" \
-    --resource-group "$RESOURCE_GROUP" \
-    --location "$LOCATION" \
-    --sku Y1 \
-    --is-linux
+echo "Note: Using Consumption plan (serverless) - Azure will create it automatically"
 
 # Create Function Apps
 echo ""
@@ -107,36 +100,39 @@ echo "Creating Function App: $RSS_PROCESSOR_APP..."
 az functionapp create \
     --name "$RSS_PROCESSOR_APP" \
     --resource-group "$RESOURCE_GROUP" \
-    --plan "$APP_SERVICE_PLAN" \
+    --consumption-plan-location "$LOCATION" \
     --storage-account "$STORAGE_ACCOUNT" \
     --runtime dotnet-isolated \
     --runtime-version 8 \
     --functions-version 4 \
     --os-type Linux
+check_error "Failed to create RSS Processor function app"
 
 echo ""
 echo "Creating Function App: $ARTICLE_SIMPLIFIER_APP..."
 az functionapp create \
     --name "$ARTICLE_SIMPLIFIER_APP" \
     --resource-group "$RESOURCE_GROUP" \
-    --plan "$APP_SERVICE_PLAN" \
+    --consumption-plan-location "$LOCATION" \
     --storage-account "$STORAGE_ACCOUNT" \
     --runtime dotnet-isolated \
     --runtime-version 8 \
     --functions-version 4 \
     --os-type Linux
+check_error "Failed to create Article Simplifier function app"
 
 echo ""
 echo "Creating Function App: $IMAGE_GENERATOR_APP..."
 az functionapp create \
     --name "$IMAGE_GENERATOR_APP" \
     --resource-group "$RESOURCE_GROUP" \
-    --plan "$APP_SERVICE_PLAN" \
+    --consumption-plan-location "$LOCATION" \
     --storage-account "$STORAGE_ACCOUNT" \
     --runtime dotnet-isolated \
     --runtime-version 8 \
     --functions-version 4 \
     --os-type Linux
+check_error "Failed to create Image Generator function app"
 
 # Create Service Principal for GitHub Actions
 echo ""

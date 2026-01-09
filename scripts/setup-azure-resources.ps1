@@ -4,8 +4,7 @@
 # Configuration
 $ResourceGroup = "ai-newspaper-rg"
 $Location = "westeurope"
-$StorageAccount = "ainewspaperstorage$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
-$AppServicePlan = "ai-newspaper-plan"
+$StorageAccount = "ai-newspaper-storage"
 
 # Function App Names
 $RssProcessorApp = "ai-newspaper-rss-processor"
@@ -96,29 +95,18 @@ $storageConnection = az storage account show-connection-string `
     --query connectionString `
     --output tsv
 
-# Create App Service Plan (Consumption/Serverless)
+# Note: For Azure Functions, we'll use Consumption plan (no need to create separate plan)
+# Azure will create it automatically with the function apps
 Write-Host ""
-Write-Host "Creating App Service Plan: $AppServicePlan..." -ForegroundColor Cyan
-az functionapp plan create `
-    --name $AppServicePlan `
-    --resource-group $ResourceGroup `
-    --location $Location `
-    --sku Y1 `
-    --is-linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create App Service Plan" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+Write-Host "Note: Using Consumption plan (serverless) - no separate plan creation needed" -ForegroundColor Yellow
 
-# Create Function Apps
+# Create Function Apps (Consumption/Serverless plan)
 Write-Host ""
 Write-Host "Creating Function App: $RssProcessorApp..." -ForegroundColor Cyan
 az functionapp create `
     --name $RssProcessorApp `
     --resource-group $ResourceGroup `
-    --plan $AppServicePlan `
+    --consumption-plan-location $Location `
     --storage-account $StorageAccount `
     --runtime dotnet-isolated `
     --runtime-version 8 `
@@ -136,7 +124,7 @@ Write-Host "Creating Function App: $ArticleSimplifierApp..." -ForegroundColor Cy
 az functionapp create `
     --name $ArticleSimplifierApp `
     --resource-group $ResourceGroup `
-    --plan $AppServicePlan `
+    --consumption-plan-location $Location `
     --storage-account $StorageAccount `
     --runtime dotnet-isolated `
     --runtime-version 8 `
@@ -154,7 +142,7 @@ Write-Host "Creating Function App: $ImageGeneratorApp..." -ForegroundColor Cyan
 az functionapp create `
     --name $ImageGeneratorApp `
     --resource-group $ResourceGroup `
-    --plan $AppServicePlan `
+    --consumption-plan-location $Location `
     --storage-account $StorageAccount `
     --runtime dotnet-isolated `
     --runtime-version 8 `
