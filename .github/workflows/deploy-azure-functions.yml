@@ -54,6 +54,11 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
 
+        az functionapp cors add \
+          --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --allowed-origins https://portal.azure.com
+
     # Deploy ArticleSimplifier
     - name: Build ArticleSimplifier
       run: |
@@ -73,6 +78,11 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
 
+        az functionapp cors add \
+          --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --allowed-origins https://portal.azure.com
+
     # Deploy ImageGenerator
     - name: Build ImageGenerator
       run: |
@@ -91,6 +101,11 @@ jobs:
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+
+        az functionapp cors add \
+          --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --allowed-origins https://portal.azure.com
 
     - name: Logout from Azure
       run: az logout
