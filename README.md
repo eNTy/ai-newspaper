@@ -99,4 +99,19 @@ az functionapp config appsettings set \
 
 ## Deployment
 
-TBD
+The project uses GitHub Actions for continuous deployment to Azure Functions.
+
+### Quick Start
+
+1. Run the setup script:
+   ```bash
+   cd scripts
+   chmod +x setup-azure-resources.sh
+   ./setup-azure-resources.sh
+   ```
+
+2. Add the GitHub secrets shown in the script output to your repository
+
+3. Push to master branch to trigger deployment
+
+For detailed instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)

@@ -1,0 +1,93 @@
+name: Deploy Azure Functions
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/deploy-azure-functions.yml'
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
+  AZURE_LOCATION: 'westeurope'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Login to Azure
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    # Deploy RssProcessor
+    - name: Build RssProcessor
+      run: |
+        cd lambdas/RssProcessor
+        dotnet build --configuration Release --output ./output
+
+    - name: Deploy RssProcessor to Azure
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ secrets.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}
+        package: lambdas/RssProcessor/output
+
+    - name: Configure RssProcessor App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ secrets.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+
+    # Deploy ArticleSimplifier
+    - name: Build ArticleSimplifier
+      run: |
+        cd lambdas/ArticleSimplifier
+        dotnet build --configuration Release --output ./output
+
+    - name: Deploy ArticleSimplifier to Azure
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ secrets.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}
+        package: lambdas/ArticleSimplifier/output
+
+    - name: Configure ArticleSimplifier App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ secrets.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+
+    # Deploy ImageGenerator
+    - name: Build ImageGenerator
+      run: |
+        cd lambdas/ImageGenerator
+        dotnet build --configuration Release --output ./output
+
+    - name: Deploy ImageGenerator to Azure
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ secrets.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}
+        package: lambdas/ImageGenerator/output
+
+    - name: Configure ImageGenerator App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ secrets.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --settings "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}"
+
+    - name: Logout from Azure
+      run: az logout
