@@ -42,7 +42,7 @@ jobs:
     - name: Build RssProcessor
       run: |
         cd lambdas/RssProcessor
-        dotnet build --configuration Release --output ./output
+        dotnet publish --configuration Release --output ./output
 
     - name: Deploy RssProcessor to Azure
       uses: Azure/functions-action@v1
@@ -66,7 +66,7 @@ jobs:
     - name: Build ArticleSimplifier
       run: |
         cd lambdas/ArticleSimplifier
-        dotnet build --configuration Release --output ./output
+        dotnet publish --configuration Release --output ./output
 
     - name: Deploy ArticleSimplifier to Azure
       uses: Azure/functions-action@v1
@@ -90,7 +90,7 @@ jobs:
     - name: Build ImageGenerator
       run: |
         cd lambdas/ImageGenerator
-        dotnet build --configuration Release --output ./output
+        dotnet publish --configuration Release --output ./output
 
     - name: Deploy ImageGenerator to Azure
       uses: Azure/functions-action@v1
@@ -114,7 +114,7 @@ jobs:
     - name: Build NewspaperOrchestrator
       run: |
         cd lambdas/NewspaperOrchestrator
-        dotnet build --configuration Release --output ./output
+        dotnet publish --configuration Release --output ./output
 
     - name: Deploy NewspaperOrchestrator to Azure
       uses: Azure/functions-action@v1
