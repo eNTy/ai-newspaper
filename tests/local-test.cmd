@@ -1,0 +1,1 @@
+curl.exe -X POST -H "Content-Type: application/json" -d '{"rssUrl": "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php", "audienceAge": 12}' http://localhost:7071/api/RssProcessor
