@@ -10,6 +10,7 @@ $StorageAccount = "ainewspaperstorage"
 $RssProcessorApp = "ai-newspaper-rss-processor"
 $ArticleSimplifierApp = "ai-newspaper-article-simplifier"
 $ImageGeneratorApp = "ai-newspaper-image-generator"
+$OrchestratorApp = "ai-newspaper-orchestrator"
 
 Write-Host "=================================="
 Write-Host "AI Newspaper - Azure Setup"
@@ -155,6 +156,24 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Write-Host ""
+Write-Host "Creating Function App: $OrchestratorApp..." -ForegroundColor Cyan
+az functionapp create `
+    --name $OrchestratorApp `
+    --resource-group $ResourceGroup `
+    --consumption-plan-location $Location `
+    --storage-account $StorageAccount `
+    --runtime dotnet-isolated `
+    --runtime-version 8 `
+    --functions-version 4 `
+    --os-type Linux `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create Orchestrator function app" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
 # Create Service Principal for GitHub Actions
 Write-Host ""
 Write-Host "Creating Service Principal for GitHub Actions..." -ForegroundColor Cyan
@@ -183,6 +202,7 @@ Write-Host "Function Apps:"
 Write-Host "  - $RssProcessorApp"
 Write-Host "  - $ArticleSimplifierApp"
 Write-Host "  - $ImageGeneratorApp"
+Write-Host "  - $OrchestratorApp"
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Yellow
 Write-Host "GitHub Secrets Configuration" -ForegroundColor Yellow
@@ -204,7 +224,10 @@ Write-Host ""
 Write-Host "4. AZURE_FUNCTIONAPP_IMAGE_GENERATOR" -ForegroundColor Cyan
 Write-Host "   Value: $ImageGeneratorApp"
 Write-Host ""
-Write-Host "5. CLAUDE_API_KEY" -ForegroundColor Cyan
+Write-Host "5. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
+Write-Host "   Value: $OrchestratorApp"
+Write-Host ""
+Write-Host "6. CLAUDE_API_KEY" -ForegroundColor Cyan
 Write-Host "   Value: <your-claude-api-key>"
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Green

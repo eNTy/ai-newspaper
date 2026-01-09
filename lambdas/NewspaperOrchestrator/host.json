@@ -1,0 +1,19 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "maxTelemetryItemsPerSecond": 20
+      }
+    }
+  },
+  "extensions": {
+    "durableTask": {
+      "hubName": "NewspaperOrchestrator",
+      "storageProvider": {
+        "type": "azure_storage"
+      }
+    }
+  }
+}

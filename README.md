@@ -8,6 +8,7 @@ An AI-powered newspaper generation system using Azure Functions and Claude AI to
   - `RssProcessor/` - Fetches RSS feeds and selects top 3 articles for target age
   - `ArticleSimplifier/` - Simplifies articles for specific age groups
   - `ImageGenerator/` - Generates illustrations for articles using Claude AI
+  - `NewspaperOrchestrator/` - Orchestrates batch processing of all three functions
 - `infrastructure/` - VM and infrastructure configuration
 - `scripts/` - Utility scripts
 
@@ -16,6 +17,7 @@ An AI-powered newspaper generation system using Azure Functions and Claude AI to
 - **RSS Processing**: Fetches news from any RSS feed and uses Claude AI to select the most appropriate articles for a target age group
 - **Article Simplification**: Rewrites articles in age-appropriate language (maintains original language, no translation)
 - **Image Generation**: Creates illustrations based on article content (with Claude AI descriptions, ready for DALL-E integration)
+- **Batch Orchestration**: Durable function that processes all 3 articles in parallel for optimal performance
 - **Azure Storage**: Stores generated images in Azure Blob Storage
 
 ## Setup
@@ -84,6 +86,28 @@ POST http://localhost:7073/api/ImageGenerator
   "storageFolder": "images"
 }
 ```
+
+### NewspaperOrchestrator (Port 7074) - Batch Processing
+```bash
+# Start batch processing
+POST http://localhost:7074/api/StartNewspaperBatch
+{
+  "rssUrl": "https://example.com/rss",
+  "audienceAge": 12,
+  "storageFolder": "images"
+}
+
+# Check status
+GET http://localhost:7074/api/status/{instanceId}
+```
+
+This orchestrator automatically:
+1. Fetches top 3 articles from RSS
+2. Simplifies all 3 articles in parallel
+3. Generates images for all 3 in parallel
+4. Returns complete batch result
+
+See [lambdas/NewspaperOrchestrator/README.md](lambdas/NewspaperOrchestrator/README.md) for details.
 
 ## Security
 

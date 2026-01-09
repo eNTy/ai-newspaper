@@ -61,7 +61,17 @@ az ad sp create-for-rbac \
 
 ---
 
-### 5. CLAUDE_API_KEY
+### 5. AZURE_FUNCTIONAPP_ORCHESTRATOR
+
+**Description**: Name of the Newspaper Orchestrator Function App in Azure
+
+**Value**: `ai-newspaper-orchestrator`
+
+**Note**: If you chose a different name during setup, use that instead
+
+---
+
+### 6. CLAUDE_API_KEY
 
 **Description**: Your Claude AI API key for accessing Claude Sonnet
 
@@ -79,13 +89,14 @@ az ad sp create-for-rbac \
 
 ## Verification
 
-After adding all secrets, you should have 5 secrets configured:
+After adding all secrets, you should have 6 secrets configured:
 
 ```
 ✅ AZURE_CREDENTIALS
 ✅ AZURE_FUNCTIONAPP_RSS_PROCESSOR
 ✅ AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER
 ✅ AZURE_FUNCTIONAPP_IMAGE_GENERATOR
+✅ AZURE_FUNCTIONAPP_ORCHESTRATOR
 ✅ CLAUDE_API_KEY
 ```
 
