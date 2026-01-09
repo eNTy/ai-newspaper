@@ -12,7 +12,7 @@
     "durableTask": {
       "hubName": "NewspaperOrchestrator",
       "storageProvider": {
-        "type": "azure_storage"
+        "type": "AzureStorage"
       }
     }
   }

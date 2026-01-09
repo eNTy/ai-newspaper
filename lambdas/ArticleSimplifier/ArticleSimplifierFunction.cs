@@ -1,12 +1,5 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using HtmlAgilityPack;
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Extensions.Logging;
-using OpenAI.Chat;
 
 namespace ArticleSimplifier;
 

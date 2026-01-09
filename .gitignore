@@ -40,5 +40,6 @@ obj/
 *.user
 *.suo
 local.settings.json
+!local.settings.json.template
 appsettings.*.json
 !appsettings.json

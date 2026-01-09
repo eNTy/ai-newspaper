@@ -8,5 +8,9 @@
     "IMAGE_GENERATOR_URL": "http://localhost:7073/api/ImageGenerator",
     "DEFAULT_RSS_URL": "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php",
     "DEFAULT_STORAGE_FOLDER": "images"
+  },
+  "Host": {
+    "LocalHttpPort": 7074,
+    "CORS": "*"
   }
 }
