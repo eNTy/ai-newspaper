@@ -1,7 +1,7 @@
-# Lambda Functions
+# Azure Functions
 
-This directory contains AWS Lambda functions for AI processing.
+This directory contains Azure Functions for AI processing.
 
 ## Structure
 
-Each lambda function should be in its own subdirectory.
+Each Azure Function should be in its own subdirectory.

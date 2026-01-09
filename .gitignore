@@ -33,3 +33,12 @@ logs/
 .terraform/
 *.tfstate
 *.tfstate.backup
+
+# .NET / Azure Functions
+bin/
+obj/
+*.user
+*.suo
+local.settings.json
+appsettings.*.json
+!appsettings.json
