@@ -131,7 +131,7 @@ jobs:
           --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings \
-            "RSS_PROCESSOR_URL=https://${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}.azurewebsites.net/api/RssProcessor" \
+            "RSS_PROCESSOR_URL=$(az functionapp function show --function-name RssProcessor -n ai-newspaper-rss-processor -g ai-newspaper-rg --query invokeUrlTemplate -o tsv)" \
             "ARTICLE_SIMPLIFIER_URL=https://${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}.azurewebsites.net/api/ArticleSimplifier" \
             "IMAGE_GENERATOR_URL=https://${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}.azurewebsites.net/api/ImageGenerator" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
