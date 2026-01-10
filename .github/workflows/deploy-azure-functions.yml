@@ -135,7 +135,7 @@ jobs:
             "ARTICLE_SIMPLIFIER_URL=https://${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}.azurewebsites.net/api/ArticleSimplifier" \
             "IMAGE_GENERATOR_URL=https://${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}.azurewebsites.net/api/ImageGenerator" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
-            "DEFAULT_RSS_URL"=${{ env.DEFAULT_RSS_URL }}" \
+            "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}" \
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
