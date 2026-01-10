@@ -105,7 +105,7 @@ jobs:
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings \
-            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
+            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
 
         az functionapp cors add \
