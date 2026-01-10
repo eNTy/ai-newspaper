@@ -157,16 +157,27 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL");
+        var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL")
+            ?? throw new InvalidOperationException("RSS_PROCESSOR_URL environment variable is not set");
 
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(rssProcessorUrl, content);
 
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            var response = await httpClient.PostAsync(rssProcessorUrl, content);
+            response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync<RssProcessorResponse>();
-        return result ?? new RssProcessorResponse();
+            var result = await response.Content.ReadFromJsonAsync<RssProcessorResponse>();
+            return result ?? new RssProcessorResponse();
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call RSS Processor. Status: {status}. " +
+                "Ensure RSS_PROCESSOR_URL is set and function key is available (via Key Vault or URL parameter)",
+                ex.StatusCode);
+            throw;
+        }
     }
 
     // Activity: Simplify article
@@ -181,16 +192,27 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL");
+        var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL")
+            ?? throw new InvalidOperationException("ARTICLE_SIMPLIFIER_URL environment variable is not set");
 
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(articleSimplifierUrl, content);
 
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            var response = await httpClient.PostAsync(articleSimplifierUrl, content);
+            response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync<ArticleSimplifierResponse>();
-        return result ?? new ArticleSimplifierResponse();
+            var result = await response.Content.ReadFromJsonAsync<ArticleSimplifierResponse>();
+            return result ?? new ArticleSimplifierResponse();
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call Article Simplifier. Status: {status}. " +
+                "Ensure ARTICLE_SIMPLIFIER_URL is set and function key is available (via Key Vault or URL parameter)",
+                ex.StatusCode);
+            throw;
+        }
     }
 
     // Activity: Generate image
@@ -205,16 +227,27 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL");
+        var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL")
+            ?? throw new InvalidOperationException("IMAGE_GENERATOR_URL environment variable is not set");
 
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(imageGeneratorUrl, content);
 
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            var response = await httpClient.PostAsync(imageGeneratorUrl, content);
+            response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync<ImageGeneratorResponse>();
-        return result ?? new ImageGeneratorResponse();
+            var result = await response.Content.ReadFromJsonAsync<ImageGeneratorResponse>();
+            return result ?? new ImageGeneratorResponse();
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call Image Generator. Status: {status}. " +
+                "Ensure IMAGE_GENERATOR_URL is set and function key is available (via Key Vault or URL parameter)",
+                ex.StatusCode);
+            throw;
+        }
     }
 
     // HTTP endpoint to check orchestration status
