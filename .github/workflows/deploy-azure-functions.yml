@@ -132,8 +132,8 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings \
             "RSS_PROCESSOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query default -o tsv)" \
-            "ARTICLE_SIMPLIFIER_URL=https://${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}.azurewebsites.net/api/ArticleSimplifier" \
-            "IMAGE_GENERATOR_URL=https://${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}.azurewebsites.net/api/ImageGenerator" \
+            "ARTICLE_SIMPLIFIER_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query default -o tsv)" \
+            "IMAGE_GENERATOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query default -o tsv)" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
             "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}" \
 
