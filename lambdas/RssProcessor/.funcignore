@@ -1,7 +1,4 @@
-obj
-bin
-.git
-.vscode
-.vs
-local.settings.json
-.funcignore
+obj/
+bin/
+.vscode/
+.git/

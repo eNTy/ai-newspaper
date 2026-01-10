@@ -4,7 +4,7 @@ public class OrchestratorRequest
 {
     public string RssUrl { get; set; } = string.Empty;
     public int AudienceAge { get; set; }
-    public string StorageFolder { get; set; } = "images";
+    public string StorageFolder { get; set; } = string.Empty;
 }
 
 public class RssProcessorRequest

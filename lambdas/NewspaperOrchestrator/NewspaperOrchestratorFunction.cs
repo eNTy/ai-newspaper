@@ -109,7 +109,7 @@ public class NewspaperOrchestratorFunction
                 ArticleTitle = simplifiedArticles[i].Title,
                 SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
                 AudienceAge = request.AudienceAge,
-                StorageFolder = request.StorageFolder
+                StorageFolder = $"{request.StorageFolder}/article-{i}"
             };
 
             var task = context.CallActivityAsync<ImageGeneratorResponse>(
@@ -157,8 +157,7 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL")
-            ?? "http://localhost:7071/api/RssProcessor";
+        var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL");
 
         var response = await httpClient.PostAsJsonAsync(rssProcessorUrl, request);
         response.EnsureSuccessStatusCode();
@@ -179,8 +178,7 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL")
-            ?? "http://localhost:7072/api/ArticleSimplifier";
+        var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL");
 
         var response = await httpClient.PostAsJsonAsync(articleSimplifierUrl, request);
         response.EnsureSuccessStatusCode();
@@ -201,8 +199,7 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL")
-            ?? "http://localhost:7073/api/ImageGenerator";
+        var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL");
 
         var response = await httpClient.PostAsJsonAsync(imageGeneratorUrl, request);
         response.EnsureSuccessStatusCode();
@@ -250,11 +247,7 @@ public class NewspaperOrchestratorFunction
         var logger = context.GetLogger(nameof(RunDailyScheduler));
         logger.LogInformation("Daily newspaper scheduler triggered at: {time}", DateTime.UtcNow);
 
-        var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL")
-            ?? "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php";
-
-        var storageFolder = Environment.GetEnvironmentVariable("DEFAULT_STORAGE_FOLDER")
-            ?? "pipeline-runs";
+        var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL");       
 
         // Define the age groups to process
         var ageGroups = new[] { 8, 12, 16 };
@@ -268,8 +261,8 @@ public class NewspaperOrchestratorFunction
             {
                 RssUrl = rssUrl,
                 AudienceAge = age,
-                StorageFolder = $"{storageFolder}/{DateTime.UtcNow:yyyy-MM-dd}/age-{age}"
-            };
+                StorageFolder = $"age-{age}/{DateTime.UtcNow:yyyy-MM-dd}"
+            }; 
 
             logger.LogInformation("Starting orchestration for age {age}", age);
 

@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
 
 env:
-  DEFAULT_RSS_URL: 'https://www.ceskenoviny.cz/sluzby/rss/zpravy.php'
-  DEFAULT_STORAGE_FOLDER: 'pipeline-runs'
+  #DEFAULT_RSS_URL: 'https://www.ceskenoviny.cz/sluzby/rss/zpravy.php'
+  DEFAULT_RSS_URL: 'https://ct24.ceskatelevize.cz/rss/tema/vyber-redakce-84313'
+  BLOB_CONTAINER_NAME: 'batch-runs'
   DOTNET_VERSION: '8.0.x'
   AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
   AZURE_LOCATION: 'westeurope'
@@ -103,7 +104,9 @@ jobs:
         az functionapp config appsettings set \
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
+          --settings \
+            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
+            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
@@ -131,8 +134,8 @@ jobs:
             "RSS_PROCESSOR_URL=https://${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}.azurewebsites.net/api/RssProcessor" \
             "ARTICLE_SIMPLIFIER_URL=https://${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}.azurewebsites.net/api/ArticleSimplifier" \
             "IMAGE_GENERATOR_URL=https://${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}.azurewebsites.net/api/ImageGenerator" \
-            "DEFAULT_RSS_URL=https://www.ceskenoviny.cz/sluzby/rss/zpravy.php" \
-            "DEFAULT_STORAGE_FOLDER=images"
+            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
+            "DEFAULT_RSS_URL"=${{ env.DEFAULT_RSS_URL }}" \
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \

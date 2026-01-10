@@ -91,10 +91,49 @@ public class ArticleSimplifierFunction
 
     private async Task<(string Title, string Content)> FetchArticleContentAsync(string articleUrl)
     {
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        var cookieContainer = new System.Net.CookieContainer();
+        var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            UseCookies = true,
+            CookieContainer = cookieContainer
+        };
 
-        var html = await httpClient.GetStringAsync(articleUrl);
+        using var httpClient = new HttpClient(handler);
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+        // Simplified headers - some sites block requests with too many security headers
+        httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+        httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        httpClient.DefaultRequestHeaders.Add("Accept-Language", "cs,en;q=0.9");
+
+        var uri = new Uri(articleUrl);
+
+        string html;
+        try
+        {
+            // Use GetAsync to get more details about the response
+            var response = await httpClient.GetAsync(articleUrl);
+
+            _logger.LogInformation($"HTTP Response Status: {(int)response.StatusCode} {response.StatusCode}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"Failed to fetch {articleUrl}. Status: {response.StatusCode}. Response: {errorContent.Substring(0, Math.Min(500, errorContent.Length))}");
+                throw new HttpRequestException($"HTTP {(int)response.StatusCode} {response.StatusCode} when fetching {articleUrl}");
+            }
+
+            html = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation($"Successfully fetched {html.Length} characters from {articleUrl}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError($"HTTP request failed for {articleUrl}: {ex.Message}");
+            throw;
+        }
 
         // Parse HTML and extract main content
         var htmlDoc = new HtmlDocument();

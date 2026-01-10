@@ -1,6 +1,6 @@
 # Image Generator Azure Function
 
-An Azure Function that generates age-appropriate illustration images for news articles using Claude AI and stores them in Azure Blob Storage.
+An Azure Function that generates age-appropriate illustration images for news articles using OpenAI DALL-E and stores them in Azure Blob Storage.
 
 ## Inputs
 
@@ -18,7 +18,9 @@ The function accepts a POST request with the following JSON body:
 - `articleTitle` (string, required): The title of the article
 - `simplifiedArticle` (string, required): The simplified article text
 - `audienceAge` (int, required): The target audience age
-- `storageFolder` (string, optional): Azure Storage folder path (default: "images")
+- `storageFolder` (string, optional): Azure Storage folder path (default: empty, saves to container root)
+
+**Note:** The image is always saved as `image.png` in the specified folder and will overwrite any existing file with the same name.
 
 ## Output
 
@@ -28,7 +30,7 @@ Returns a JSON response with the image URL:
 {
   "articleTitle": "Article Title",
   "audienceAge": 12,
-  "imageUrl": "https://account.blob.core.windows.net/article-images/images/Article_Title_abc123.svg",
+  "imageUrl": "https://account.blob.core.windows.net/batch-runs/images/image.png",
   "storageFolder": "images"
 }
 ```
@@ -36,11 +38,13 @@ Returns a JSON response with the image URL:
 ## Features
 
 - Generates age-appropriate image prompts based on article content
-- Uses Claude AI to create detailed image descriptions
-- Creates placeholder SVG images (ready for DALL-E/Stable Diffusion integration)
-- Uploads images to Azure Blob Storage
+- Uses OpenAI DALL-E to create actual images
+- Uploads PNG images to Azure Blob Storage with fixed filename (`image.png`)
 - Returns publicly accessible image URL
 - Age-specific styling (cartoon for kids, realistic for teens/adults)
+- Supports custom storage folders
+- Configurable blob container name via environment variable
+- Overwrites existing images in the same folder
 
 ## Local Development
 
@@ -48,40 +52,43 @@ Returns a JSON response with the image URL:
 
 - .NET 8.0 SDK
 - Azure Functions Core Tools v4
-- Claude API key
+- OpenAI API key
 - Azure Storage Emulator (Azurite) for local testing
 
 ### Configuration
 
-1. Update `local.settings.json` with your Claude API key:
+1. Update `local.settings.json` with your configuration:
    ```json
    {
      "Values": {
-       "CLAUDE_API_KEY": "your-actual-api-key-here",
-       "AzureWebJobsStorage": "UseDevelopmentStorage=true"
+       "OPENAI_API_KEY": "your-actual-api-key-here",
+       "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+       "BLOB_CONTAINER_NAME": "batch-runs"
+     },
+     "Host": {
+       "LocalHttpPort": 7071
      }
    }
    ```
 
 2. Start Azure Storage Emulator:
    ```bash
-   azurite --silent --location c:\azurite --debug c:\azurite\debug.log
+   azurite
    ```
 
 ### Running Locally
 
 ```bash
 cd lambdas/ImageGenerator
-dotnet restore
-dotnet build
-cd bin/Debug/net8.0
-func start --no-build --port 7073
+func start --port 7071
 ```
+
+Or use the VS Code debugger configuration.
 
 ### Testing
 
 ```bash
-curl -X POST http://localhost:7073/api/ImageGenerator \
+curl -X POST http://localhost:7071/api/ImageGenerator \
   -H "Content-Type: application/json" \
   -d '{
     "articleTitle": "Scientists Find DNA on Leonardo da Vinci Drawing",
@@ -91,45 +98,31 @@ curl -X POST http://localhost:7073/api/ImageGenerator \
   }'
 ```
 
-## Production Integration
-
-**Note:** This function currently generates placeholder SVG images with Claude-generated descriptions.
-
-To integrate with actual image generation:
-
-1. **DALL-E Integration** (OpenAI):
-   - Replace `CreatePlaceholderImageAsync` with OpenAI API calls
-   - Use the Claude-generated description as the DALL-E prompt
-
-2. **Stable Diffusion** (Stability AI):
-   - Integrate Stability AI SDK
-   - Use text-to-image generation endpoint
-
-3. **Azure AI Image Generation**:
-   - Use Azure OpenAI Service
-   - Leverage DALL-E 3 through Azure
-
 ## Deployment
 
-1. Deploy to Azure:
-   ```bash
-   func azure functionapp publish <YOUR_FUNCTION_APP_NAME>
-   ```
+The function is deployed via GitHub Actions workflow. See `.github/workflows/deploy-azure-functions.yml`.
 
-2. Configure application settings:
-   ```bash
-   az functionapp config appsettings set \
-     --name <YOUR_FUNCTION_APP_NAME> \
-     --resource-group <YOUR_RESOURCE_GROUP> \
-     --settings "CLAUDE_API_KEY=your-key" \
-                "AzureWebJobsStorage=your-storage-connection-string"
-   ```
+### Environment Variables
+
+Required in Azure:
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `AzureWebJobsStorage`: Azure Storage connection string
+- `BLOB_CONTAINER_NAME`: Container name for images (default: "batch-runs")
+
+Configure via Azure Portal or CLI:
+```bash
+az functionapp config appsettings set \
+  --name <YOUR_FUNCTION_APP_NAME> \
+  --resource-group <YOUR_RESOURCE_GROUP> \
+  --settings "OPENAI_API_KEY=your-key" \
+             "BLOB_CONTAINER_NAME=batch-runs"
+```
 
 ## How It Works
 
-1. **Receive Request**: Gets article title, simplified text, and age
-2. **Generate Prompt**: Creates age-appropriate image generation prompt
-3. **Claude AI**: Generates detailed image description
-4. **Create Image**: Produces placeholder SVG (or calls image generation API)
-5. **Upload to Storage**: Stores image in Azure Blob Storage
+1. **Receive Request**: Gets article title, simplified text, age, and optional storage folder
+2. **Generate Prompt**: Creates age-appropriate image generation prompt using GPT-4o
+3. **Refine Prompt**: GPT-4o refines the prompt for optimal DALL-E generation
+4. **DALL-E Generation**: Calls OpenAI DALL-E 3 to generate PNG image
+5. **Upload to Storage**: Stores image as `image.png` in the specified folder within the configured container
 6. **Return URL**: Provides publicly accessible image URL

@@ -43,3 +43,10 @@ local.settings.json
 !local.settings.json.template
 appsettings.*.json
 !appsettings.json
+
+# Azurite storage emulator files
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
+AzuriteConfig
