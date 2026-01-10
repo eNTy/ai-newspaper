@@ -19,11 +19,11 @@ env:
   AZURE_FUNCTIONAPP_RSS_PROCESSOR: 'ai-newspaper-rss-processor'
   AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: 'ai-newspaper-article-simplifier'
   AZURE_FUNCTIONAPP_IMAGE_GENERATOR: 'ai-newspaper-image-generator'
-  AZURE_FUNCTIONAPP_ORCHESTRATOR: 'ai-newspaper-orchestrator'
+  AZURE_FUNCTIONAPP_ORCHESTRATOR: 'ai-newspaper-orchestrator'  
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest    
 
     steps:
     - name: Checkout code
@@ -131,7 +131,7 @@ jobs:
           --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings \
-            "RSS_PROCESSOR_URL=$(az functionapp function show --function-name RssProcessor -n ai-newspaper-rss-processor -g ai-newspaper-rg --query invokeUrlTemplate -o tsv)" \
+            "RSS_PROCESSOR_URL=$($FUNCTION_URL --function-name RssProcessor -n ai-newspaper-rss-processor --query invokeUrlTemplate -o tsv)?code=$($FUNCTION_KEY --function-name RssProcessor -n ai-newspaper-rss-processor --query default -o tsv)" \
             "ARTICLE_SIMPLIFIER_URL=https://${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}.azurewebsites.net/api/ArticleSimplifier" \
             "IMAGE_GENERATOR_URL=https://${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}.azurewebsites.net/api/ImageGenerator" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
@@ -141,6 +141,11 @@ jobs:
           --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --allowed-origins https://portal.azure.com
+
+        env: 
+          FUNCTION_URL: az functionapp function show -g ${{ env.AZURE_RESOURCE_GROUP }}
+          FUNCTION_KEY: az functionapp function keys list -g ${{ env.AZURE_RESOURCE_GROUP }}
+          
 
     - name: Logout from Azure
       run: az logout
