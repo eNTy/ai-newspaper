@@ -15,7 +15,15 @@ public class RssProcessorRequest
 
 public class RssProcessorResponse
 {
-    public List<string> TopArticles { get; set; } = new();
+    public string SourceUrl { get; set; } = string.Empty;
+    public int AudienceAge { get; set; }
+    public List<ArticleResult> TopArticles { get; set; } = new();
+}
+
+public class ArticleResult
+{
+    public string Title { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
 }
 
 public class ArticleSimplifierRequest

@@ -82,11 +82,11 @@ public class NewspaperOrchestratorFunction
 
         // Step 2: Simplify articles in parallel
         var simplifyTasks = new List<Task<ArticleSimplifierResponse>>();
-        foreach (var articleUrl in topArticles.TopArticles)
+        foreach (var article in topArticles.TopArticles)
         {
             var simplifyRequest = new ArticleSimplifierRequest
             {
-                ArticleUrl = articleUrl,
+                ArticleUrl = article.Url,
                 AudienceAge = request.AudienceAge
             };
 
@@ -128,7 +128,7 @@ public class NewspaperOrchestratorFunction
         {
             processedArticles.Add(new ProcessedArticle
             {
-                Url = topArticles.TopArticles[i],
+                Url = topArticles.TopArticles[i].Url,
                 Title = simplifiedArticles[i].Title,
                 SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
                 ImageUrl = images[i].ImageUrl,
@@ -152,14 +152,17 @@ public class NewspaperOrchestratorFunction
         FunctionContext context)
     {
         var logger = context.GetLogger(nameof(FetchTopArticles));
-        logger.LogInformation("Fetching top articles from: {url}", request.RssUrl);
+        logger.LogInformation("Fetching top articles from: {url} for age: {age}", request.RssUrl, request.AudienceAge);
 
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
         var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL");
 
-        var response = await httpClient.PostAsJsonAsync(rssProcessorUrl, request);
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
+        var response = await httpClient.PostAsync(rssProcessorUrl, content);
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<RssProcessorResponse>();
@@ -180,7 +183,10 @@ public class NewspaperOrchestratorFunction
 
         var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL");
 
-        var response = await httpClient.PostAsJsonAsync(articleSimplifierUrl, request);
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
+        var response = await httpClient.PostAsync(articleSimplifierUrl, content);
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<ArticleSimplifierResponse>();
@@ -201,7 +207,10 @@ public class NewspaperOrchestratorFunction
 
         var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL");
 
-        var response = await httpClient.PostAsJsonAsync(imageGeneratorUrl, request);
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
+        var response = await httpClient.PostAsync(imageGeneratorUrl, content);
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<ImageGeneratorResponse>();
@@ -247,7 +256,8 @@ public class NewspaperOrchestratorFunction
         var logger = context.GetLogger(nameof(RunDailyScheduler));
         logger.LogInformation("Daily newspaper scheduler triggered at: {time}", DateTime.UtcNow);
 
-        var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL");       
+        var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL")
+            ?? throw new InvalidOperationException("DEFAULT_RSS_URL environment variable is not set");
 
         // Define the age groups to process
         var ageGroups = new[] { 8, 12, 16 };
