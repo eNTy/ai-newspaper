@@ -19,7 +19,8 @@
       "Bash(powershell:*)",
       "Bash(git rm:*)",
       "Bash(netstat:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(dir:*)"
     ]
   }
 }

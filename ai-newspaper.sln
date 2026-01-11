@@ -6,6 +6,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lambdas", "lambdas", "{F6B1
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RssProcessor", "lambdas\RssProcessor\RssProcessor.csproj", "{B27C7AED-2266-9DB0-80A5-FA5CF3C76B3A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArticleSimplifier", "lambdas\ArticleSimplifier\ArticleSimplifier.csproj", "{A1B2C3D4-5678-90AB-CDEF-111111111111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageGenerator", "lambdas\ImageGenerator\ImageGenerator.csproj", "{A1B2C3D4-5678-90AB-CDEF-222222222222}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewspaperOrchestrator", "lambdas\NewspaperOrchestrator\NewspaperOrchestrator.csproj", "{A1B2C3D4-5678-90AB-CDEF-333333333333}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -16,12 +22,27 @@ Global
 		{B27C7AED-2266-9DB0-80A5-FA5CF3C76B3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B27C7AED-2266-9DB0-80A5-FA5CF3C76B3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B27C7AED-2266-9DB0-80A5-FA5CF3C76B3A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-111111111111}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-111111111111}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-222222222222}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-222222222222}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-333333333333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-333333333333}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-333333333333}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-5678-90AB-CDEF-333333333333}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B27C7AED-2266-9DB0-80A5-FA5CF3C76B3A} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
+		{A1B2C3D4-5678-90AB-CDEF-111111111111} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
+		{A1B2C3D4-5678-90AB-CDEF-222222222222} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
+		{A1B2C3D4-5678-90AB-CDEF-333333333333} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3CD65DC6-D280-48C3-ACE9-1EE15EA2EFDC}
