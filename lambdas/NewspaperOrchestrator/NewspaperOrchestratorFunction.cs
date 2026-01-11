@@ -100,27 +100,47 @@ public class NewspaperOrchestratorFunction
         var simplifiedArticles = await Task.WhenAll(simplifyTasks);
         logger.LogInformation("Simplified {count} articles", simplifiedArticles.Length);
 
-        // Step 3: Generate images in parallel
+        // Step 3: Generate images and audio in parallel
         var imageGenTasks = new List<Task<ImageGeneratorResponse>>();
+        var audioGenTasks = new List<Task<TextToSpeechResponse>>();
+
         for (int i = 0; i < simplifiedArticles.Length; i++)
         {
+            var storageFolder = $"{request.StorageFolder}/article-{i}";
+
+            // Image generation task
             var imageRequest = new ImageGeneratorRequest
             {
                 ArticleTitle = simplifiedArticles[i].Title,
                 SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
                 AudienceAge = request.AudienceAge,
-                StorageFolder = $"{request.StorageFolder}/article-{i}"
+                StorageFolder = storageFolder
             };
 
-            var task = context.CallActivityAsync<ImageGeneratorResponse>(
+            var imageTask = context.CallActivityAsync<ImageGeneratorResponse>(
                 nameof(GenerateImage),
                 imageRequest);
 
-            imageGenTasks.Add(task);
+            imageGenTasks.Add(imageTask);
+
+            // Audio generation task
+            var audioRequest = new TextToSpeechRequest
+            {
+                ArticleTitle = simplifiedArticles[i].Title,
+                SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
+                StorageFolder = storageFolder
+            };
+
+            var audioTask = context.CallActivityAsync<TextToSpeechResponse>(
+                nameof(GenerateAudio),
+                audioRequest);
+
+            audioGenTasks.Add(audioTask);
         }
 
         var images = await Task.WhenAll(imageGenTasks);
-        logger.LogInformation("Generated {count} images", images.Length);
+        var audios = await Task.WhenAll(audioGenTasks);
+        logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
 
         // Step 4: Combine results
         var processedArticles = new List<ProcessedArticle>();
@@ -132,7 +152,8 @@ public class NewspaperOrchestratorFunction
                 Title = simplifiedArticles[i].Title,
                 SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
                 ImageUrl = images[i].ImageUrl,
-                ImageDescription = images[i].Description
+                ImageDescription = images[i].Description,
+                AudioUrl = audios[i].AudioUrl
             });
         }
 
@@ -245,6 +266,41 @@ public class NewspaperOrchestratorFunction
         {
             logger.LogError(ex, "Failed to call Image Generator. Status: {status}. " +
                 "Ensure IMAGE_GENERATOR_URL is set and function key is available (via Key Vault or URL parameter)",
+                ex.StatusCode);
+            throw;
+        }
+    }
+
+    // Activity: Generate audio
+    [Function(nameof(GenerateAudio))]
+    public async Task<TextToSpeechResponse> GenerateAudio(
+        [ActivityTrigger] TextToSpeechRequest request,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(GenerateAudio));
+        logger.LogInformation("Generating audio for: {title}", request.ArticleTitle);
+
+        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
+        var httpClient = httpClientFactory!.CreateClient();
+
+        var textToSpeechUrl = Environment.GetEnvironmentVariable("TEXT_TO_SPEECH_URL")
+            ?? throw new InvalidOperationException("TEXT_TO_SPEECH_URL environment variable is not set");
+
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
+
+        try
+        {
+            var response = await httpClient.PostAsync(textToSpeechUrl, content);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<TextToSpeechResponse>();
+            return result ?? new TextToSpeechResponse();
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call Text-to-Speech. Status: {status}. " +
+                "Ensure TEXT_TO_SPEECH_URL is set and function key is available (via Key Vault or URL parameter)",
                 ex.StatusCode);
             throw;
         }

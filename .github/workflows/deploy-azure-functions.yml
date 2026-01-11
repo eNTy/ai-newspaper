@@ -13,6 +13,7 @@ env:
   AZURE_FUNCTIONAPP_RSS_PROCESSOR: 'ai-newspaper-rss-processor'
   AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: 'ai-newspaper-article-simplifier'
   AZURE_FUNCTIONAPP_IMAGE_GENERATOR: 'ai-newspaper-image-generator'
+  AZURE_FUNCTIONAPP_TEXT_TO_SPEECH: 'ai-newspaper-text-to-speech'
   AZURE_FUNCTIONAPP_ORCHESTRATOR: 'ai-newspaper-orchestrator'
 
 jobs:
@@ -107,6 +108,32 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --allowed-origins https://portal.azure.com
 
+    # Deploy TextToSpeech
+    - name: Build TextToSpeech
+      run: |
+        cd lambdas/TextToSpeech
+        dotnet publish --configuration Release --output ./output
+
+    - name: Deploy TextToSpeech to Azure
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }}
+        package: lambdas/TextToSpeech/output
+
+    - name: Configure TextToSpeech App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --settings \
+            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
+            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
+
+        az functionapp cors add \
+          --name ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --allowed-origins https://portal.azure.com
+
     # Deploy NewspaperOrchestrator
     - name: Build NewspaperOrchestrator
       run: |
@@ -128,6 +155,7 @@ jobs:
             "RSS_PROCESSOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query default -o tsv)" \
             "ARTICLE_SIMPLIFIER_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query default -o tsv)" \
             "IMAGE_GENERATOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query default -o tsv)" \
+            "TEXT_TO_SPEECH_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-text-to-speech --function-name TextToSpeech --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-text-to-speech --function-name TextToSpeech --query default -o tsv)" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
             "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}" \
 

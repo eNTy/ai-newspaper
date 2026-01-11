@@ -7,6 +7,9 @@ curl.exe -X POST http://localhost:7072/api/ArticleSimplifier -H "Content-Type: a
 ImageGenerator
 curl.exe -X POST http://localhost:7071/api/ImageGenerator -H "Content-Type: application/json" -d @ImageGenerator.json
 
+TextToSpeech
+curl.exe -X POST http://localhost:7075/api/TextToSpeech -H "Content-Type: application/json" -d @ImageGenerator.json
+
 NewspaperOrchestratorFunction
 curl.exe -X POST http://localhost:7074/api/StartNewspaperBatch -H "Content-Type: application/json" -d '{\"rssUrl\": \"https://ct24.ceskatelevize.cz/rss/tema/vyber-redakce-84313\", \"audienceAge\": 12, \"storageFolder\": \"age-12/2026-01-10\" }'
 

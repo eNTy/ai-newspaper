@@ -52,6 +52,18 @@ public class ImageGeneratorResponse
     public string Description { get; set; } = string.Empty;
 }
 
+public class TextToSpeechRequest
+{
+    public string ArticleTitle { get; set; } = string.Empty;
+    public string SimplifiedArticle { get; set; } = string.Empty;
+    public string StorageFolder { get; set; } = string.Empty;
+}
+
+public class TextToSpeechResponse
+{
+    public string AudioUrl { get; set; } = string.Empty;
+}
+
 public class ProcessedArticle
 {
     public string Url { get; set; } = string.Empty;
@@ -59,6 +71,7 @@ public class ProcessedArticle
     public string SimplifiedArticle { get; set; } = string.Empty;
     public string ImageUrl { get; set; } = string.Empty;
     public string ImageDescription { get; set; } = string.Empty;
+    public string AudioUrl { get; set; } = string.Empty;
 }
 
 public class OrchestratorResponse

@@ -10,6 +10,7 @@ $StorageAccount = "ainewspaperstorage"
 $RssProcessorApp = "ai-newspaper-rss-processor"
 $ArticleSimplifierApp = "ai-newspaper-article-simplifier"
 $ImageGeneratorApp = "ai-newspaper-image-generator"
+$TextToSpeechApp = "ai-newspaper-text-to-speech"
 $OrchestratorApp = "ai-newspaper-orchestrator"
 
 Write-Host "=================================="
@@ -218,6 +219,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
+Write-Host "Creating Function App: $TextToSpeechApp..." -ForegroundColor Cyan
+az functionapp create `
+    --name $TextToSpeechApp `
+    --resource-group $ResourceGroup `
+    --consumption-plan-location $Location `
+    --storage-account $StorageAccount `
+    --runtime dotnet-isolated `
+    --runtime-version 8 `
+    --functions-version 4 `
+    --os-type Linux `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create Text-to-Speech function app" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host ""
 Write-Host "Creating Function App: $OrchestratorApp..." -ForegroundColor Cyan
 az functionapp create `
     --name $OrchestratorApp `
@@ -263,6 +282,7 @@ Write-Host "Function Apps:"
 Write-Host "  - $RssProcessorApp"
 Write-Host "  - $ArticleSimplifierApp"
 Write-Host "  - $ImageGeneratorApp"
+Write-Host "  - $TextToSpeechApp"
 Write-Host "  - $OrchestratorApp"
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Yellow
@@ -285,10 +305,13 @@ Write-Host ""
 Write-Host "4. AZURE_FUNCTIONAPP_IMAGE_GENERATOR" -ForegroundColor Cyan
 Write-Host "   Value: $ImageGeneratorApp"
 Write-Host ""
-Write-Host "5. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
+Write-Host "5. AZURE_FUNCTIONAPP_TEXT_TO_SPEECH" -ForegroundColor Cyan
+Write-Host "   Value: $TextToSpeechApp"
+Write-Host ""
+Write-Host "6. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
 Write-Host "   Value: $OrchestratorApp"
 Write-Host ""
-Write-Host "6. OPENAI_API_KEY" -ForegroundColor Cyan
+Write-Host "7. OPENAI_API_KEY" -ForegroundColor Cyan
 Write-Host "   Value: <your-openai-api-key-from-platform.openai.com>"
 Write-Host ""
 Write-Host "Note: Get your OpenAI API key from https://platform.openai.com/api-keys" -ForegroundColor Yellow
