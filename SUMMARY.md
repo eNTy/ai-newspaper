@@ -117,6 +117,7 @@ cd scripts
 3. **Simple and Debuggable**: No complex Key Vault setup, easy to debug locally
 4. **Works Everywhere**: Same approach works in Azure and locally
 5. **Secure**: Function keys in environment variables, encrypted at rest, transmitted over HTTPS
+6. **Retry Logic**: Automatic retry when retrieving function keys, handles timing issues
 
 ---
 

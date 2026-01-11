@@ -50,42 +50,67 @@ try {
 
     # Get function URLs and keys for other functions
     Write-Host "`nRetrieving function URLs and keys..." -ForegroundColor Yellow
+    Write-Host "(Functions may take a moment to become available...)" -ForegroundColor Gray
 
-    $rssUrl = az functionapp function show `
-        -g $resourceGroup `
-        -n "ai-newspaper-rss-processor" `
-        --function-name "RssProcessor" `
-        --query "invokeUrlTemplate" -o tsv
+    # Wait a bit for functions to stabilize
+    Start-Sleep -Seconds 10
 
-    $rssKey = az functionapp function keys list `
-        -g $resourceGroup `
-        -n "ai-newspaper-rss-processor" `
-        --function-name "RssProcessor" `
-        --query "default" -o tsv
+    # Helper function to retry getting function info
+    function Get-FunctionInfo {
+        param($AppName, $FunctionName, $MaxRetries = 5)
 
-    $simplifierUrl = az functionapp function show `
-        -g $resourceGroup `
-        -n "ai-newspaper-article-simplifier" `
-        --function-name "ArticleSimplifier" `
-        --query "invokeUrlTemplate" -o tsv
+        for ($i = 1; $i -le $MaxRetries; $i++) {
+            try {
+                $url = az functionapp function show `
+                    -g $resourceGroup `
+                    -n $AppName `
+                    --function-name $FunctionName `
+                    --query "invokeUrlTemplate" -o tsv 2>$null
 
-    $simplifierKey = az functionapp function keys list `
-        -g $resourceGroup `
-        -n "ai-newspaper-article-simplifier" `
-        --function-name "ArticleSimplifier" `
-        --query "default" -o tsv
+                if ($url) {
+                    $key = az functionapp function keys list `
+                        -g $resourceGroup `
+                        -n $AppName `
+                        --function-name $FunctionName `
+                        --query "default" -o tsv 2>$null
 
-    $imageUrl = az functionapp function show `
-        -g $resourceGroup `
-        -n "ai-newspaper-image-generator" `
-        --function-name "ImageGenerator" `
-        --query "invokeUrlTemplate" -o tsv
+                    if ($key) {
+                        return @{ Url = $url; Key = $key }
+                    }
+                }
+            }
+            catch {
+                # Ignore errors and retry
+            }
 
-    $imageKey = az functionapp function keys list `
-        -g $resourceGroup `
-        -n "ai-newspaper-image-generator" `
-        --function-name "ImageGenerator" `
-        --query "default" -o tsv
+            if ($i -lt $MaxRetries) {
+                Write-Host "  Retry $i/$MaxRetries for $FunctionName..." -ForegroundColor Gray
+                Start-Sleep -Seconds 10
+            }
+        }
+
+        throw "Failed to retrieve function info for $FunctionName after $MaxRetries attempts"
+    }
+
+    # Get RssProcessor
+    Write-Host "  Getting RssProcessor..." -ForegroundColor Gray
+    $rssInfo = Get-FunctionInfo -AppName "ai-newspaper-rss-processor" -FunctionName "RssProcessor"
+    $rssUrl = $rssInfo.Url
+    $rssKey = $rssInfo.Key
+
+    # Get ArticleSimplifier
+    Write-Host "  Getting ArticleSimplifier..." -ForegroundColor Gray
+    $simplifierInfo = Get-FunctionInfo -AppName "ai-newspaper-article-simplifier" -FunctionName "ArticleSimplifier"
+    $simplifierUrl = $simplifierInfo.Url
+    $simplifierKey = $simplifierInfo.Key
+
+    # Get ImageGenerator
+    Write-Host "  Getting ImageGenerator..." -ForegroundColor Gray
+    $imageInfo = Get-FunctionInfo -AppName "ai-newspaper-image-generator" -FunctionName "ImageGenerator"
+    $imageUrl = $imageInfo.Url
+    $imageKey = $imageInfo.Key
+
+    Write-Host "  Successfully retrieved all function info!" -ForegroundColor Green
 
     # Configure app settings with function URLs including keys
     Write-Host "`nConfiguring app settings..." -ForegroundColor Yellow

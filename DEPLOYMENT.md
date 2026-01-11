@@ -221,6 +221,11 @@ az login
   - `ai-newspaper-rss-processor`
   - `ai-newspaper-article-simplifier`
   - `ai-newspaper-image-generator`
+- **If functions aren't showing up**: Check if they have required environment variables set
+  - ImageGenerator needs `BLOB_CONTAINER_NAME`
+  - All functions need `OPENAI_API_KEY`
+- Wait a few minutes after deploying before deploying the Orchestrator
+- The deployment scripts now include automatic retry logic
 
 ### CORS Issues
 The deployment scripts automatically configure CORS for Azure Portal.
