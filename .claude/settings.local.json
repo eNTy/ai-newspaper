@@ -13,7 +13,11 @@
       "Bash(func host start)",
       "Bash(func host start:*)",
       "Bash(npm --version:*)",
-      "Bash(az storage blob list:*)"
+      "Bash(az storage blob list:*)",
+      "Bash(if exist \"lambdas\\\\NewspaperOrchestrator\\\\FunctionKeyProvider.cs\" del \"lambdas\\\\NewspaperOrchestrator\\\\FunctionKeyProvider.cs\")",
+      "Bash(if exist \"AZURE_SETUP_GUIDE.md\" del \"AZURE_SETUP_GUIDE.md\")",
+      "Bash(powershell:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

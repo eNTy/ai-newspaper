@@ -1,270 +1,281 @@
 # Deployment Guide
 
-This guide walks you through setting up CI/CD with GitHub Actions to automatically deploy Azure Functions.
+This guide explains how to deploy each Azure Function individually, either manually or via GitHub Actions.
 
-## Prerequisites
+## Table of Contents
+- [GitHub Actions (Automated)](#github-actions-automated)
+- [Manual Deployment (PowerShell)](#manual-deployment-powershell)
+- [Local Development](#local-development)
+- [Deployment Order](#deployment-order)
 
-- Azure Account with active subscription
-- Azure CLI installed ([Install Guide](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli))
-- GitHub repository access
-- Claude API Key
+---
 
-## Step 1: Setup Azure Resources
+## GitHub Actions (Automated)
 
-Run the automated setup script:
+Each function has its own workflow that automatically deploys when changes are pushed to the `master` branch.
 
-### Windows (PowerShell - Recommended)
+### Individual Workflows
+
+| Function | Workflow File | Triggers On |
+|----------|--------------|-------------|
+| RssProcessor | [deploy-rss-processor.yml](.github/workflows/deploy-rss-processor.yml) | Changes to `lambdas/RssProcessor/**` |
+| ArticleSimplifier | [deploy-article-simplifier.yml](.github/workflows/deploy-article-simplifier.yml) | Changes to `lambdas/ArticleSimplifier/**` |
+| ImageGenerator | [deploy-image-generator.yml](.github/workflows/deploy-image-generator.yml) | Changes to `lambdas/ImageGenerator/**` |
+| NewspaperOrchestrator | [deploy-orchestrator.yml](.github/workflows/deploy-orchestrator.yml) | Changes to `lambdas/NewspaperOrchestrator/**` |
+
+### Manual Trigger via GitHub UI
+
+You can also manually trigger any workflow:
+
+1. Go to **Actions** tab in GitHub
+2. Select the workflow you want to run (e.g., "Deploy RssProcessor")
+3. Click **Run workflow**
+4. Select branch (usually `master`)
+5. Click **Run workflow**
+
+### Deploy All Functions at Once
+
+Use the **Deploy All Azure Functions (Manual)** workflow:
+- This workflow is **manual-only** (doesn't auto-trigger on push)
+- Deploys all four functions in sequence
+- Useful for initial setup or when making cross-function changes
+
+---
+
+## Manual Deployment (PowerShell)
+
+Use these scripts to deploy from your local machine:
+
+### Prerequisites
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download) installed
+- Logged into Azure: `az login`
+
+### Deploy Individual Functions
+
 ```powershell
+# Navigate to scripts directory
 cd scripts
-.\setup-azure-resources.ps1
+
+# Deploy RssProcessor
+.\deploy-rss-processor.ps1
+
+# Deploy ArticleSimplifier
+.\deploy-article-simplifier.ps1
+
+# Deploy ImageGenerator
+.\deploy-image-generator.ps1
+
+# Deploy NewspaperOrchestrator (must be deployed AFTER the other three)
+.\deploy-orchestrator.ps1
 ```
 
-### Linux/Mac (Bash)
-```bash
-cd scripts
-chmod +x setup-azure-resources.sh
-./setup-azure-resources.sh
+Each script will:
+1. Build and publish the .NET project
+2. Create a deployment package (zip)
+3. Deploy to Azure Function App
+4. Display the function URL
+
+The **Orchestrator script** additionally:
+- Retrieves function keys from the other three functions
+- Configures environment variables with URLs + keys
+- This ensures the 401 Unauthorized error is fixed!
+
+---
+
+## Local Development
+
+### Running Functions Locally
+
+Each function can be run locally using Azure Functions Core Tools:
+
+```powershell
+# Install Azure Functions Core Tools (if not already installed)
+npm install -g azure-functions-core-tools@4
+
+# Navigate to function directory
+cd lambdas/RssProcessor
+
+# Run locally
+func start
 ```
 
-This script will:
-1. Create an Azure Resource Group
-2. Create a Storage Account
-3. Create an App Service Plan (Consumption/Serverless)
-4. Create three Function Apps (one for each lambda)
-5. Create a Service Principal for GitHub Actions authentication
+### Local Settings
 
-### Manual Setup (Alternative)
+Each function needs a `local.settings.json` file. Example for RssProcessor:
 
-If you prefer manual setup or the script fails, follow these steps:
-
-#### 1. Login to Azure
-```bash
-az login
-```
-
-#### 2. Create Resource Group
-```bash
-az group create \
-  --name ai-newspaper-rg \
-  --location westeurope
-```
-
-#### 3. Create Storage Account
-```bash
-az storage account create \
-  --name ainewspaperstorage \
-  --resource-group ai-newspaper-rg \
-  --location westeurope \
-  --sku Standard_LRS
-```
-
-#### 4. Create App Service Plan
-```bash
-az functionapp plan create \
-  --name ai-newspaper-plan \
-  --resource-group ai-newspaper-rg \
-  --location westeurope \
-  --sku Y1 \
-  --is-linux
-```
-
-#### 5. Create Function Apps
-```bash
-# RSS Processor
-az functionapp create \
-  --name ai-newspaper-rss-processor \
-  --resource-group ai-newspaper-rg \
-  --plan ai-newspaper-plan \
-  --storage-account ainewspaperstorage \
-  --runtime dotnet-isolated \
-  --runtime-version 8 \
-  --functions-version 4 \
-  --os-type Linux
-
-# Article Simplifier
-az functionapp create \
-  --name ai-newspaper-article-simplifier \
-  --resource-group ai-newspaper-rg \
-  --plan ai-newspaper-plan \
-  --storage-account ainewspaperstorage \
-  --runtime dotnet-isolated \
-  --runtime-version 8 \
-  --functions-version 4 \
-  --os-type Linux
-
-# Image Generator
-az functionapp create \
-  --name ai-newspaper-image-generator \
-  --resource-group ai-newspaper-rg \
-  --plan ai-newspaper-plan \
-  --storage-account ainewspaperstorage \
-  --runtime dotnet-isolated \
-  --runtime-version 8 \
-  --functions-version 4 \
-  --os-type Linux
-```
-
-#### 6. Create Service Principal
-```bash
-az ad sp create-for-rbac \
-  --name "ai-newspaper-github-actions" \
-  --role contributor \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/ai-newspaper-rg \
-  --sdk-auth
-```
-
-Save the JSON output - you'll need it for GitHub Secrets.
-
-## Step 2: Configure GitHub Secrets
-
-Go to your GitHub repository:
-1. Click **Settings** > **Secrets and variables** > **Actions**
-2. Click **New repository secret**
-
-Add the following secrets:
-
-### AZURE_CREDENTIALS
-The JSON output from the Service Principal creation. Format:
 ```json
 {
-  "clientId": "xxx",
-  "clientSecret": "xxx",
-  "subscriptionId": "xxx",
-  "tenantId": "xxx"
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "OPENAI_API_KEY": "your-openai-key-here"
+  }
 }
 ```
 
-### AZURE_FUNCTIONAPP_RSS_PROCESSOR
-Value: `ai-newspaper-rss-processor`
+For **NewspaperOrchestrator**, you need URLs for the other functions:
 
-### AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER
-Value: `ai-newspaper-article-simplifier`
+```json
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
 
-### AZURE_FUNCTIONAPP_IMAGE_GENERATOR
-Value: `ai-newspaper-image-generator`
+    "RSS_PROCESSOR_URL": "http://localhost:7071/api/RssProcessor",
+    "ARTICLE_SIMPLIFIER_URL": "http://localhost:7072/api/ArticleSimplifier",
+    "IMAGE_GENERATOR_URL": "http://localhost:7073/api/ImageGenerator",
 
-### CLAUDE_API_KEY
-Your Claude API key from https://console.anthropic.com/
-
-## Step 3: Trigger Deployment
-
-The GitHub Actions workflow will automatically trigger on:
-- Push to `master` branch
-- Changes in the `lambdas/` directory
-- Manual trigger via GitHub Actions UI
-
-### Manual Deployment
-1. Go to your repository on GitHub
-2. Click **Actions** tab
-3. Select **Deploy Azure Functions** workflow
-4. Click **Run workflow**
-
-### Automatic Deployment
-Simply push changes:
-```bash
-git add .
-git commit -m "Update functions"
-git push origin master
+    "DEFAULT_RSS_URL": "https://ct24.ceskatelevize.cz/rss/tema/vyber-redakce-84313",
+    "BLOB_CONTAINER_NAME": "batch-runs"
+  }
+}
 ```
 
-## Step 4: Verify Deployment
+**Note:** Run each function on a different port to avoid conflicts.
 
-After deployment completes:
+---
 
-1. Check GitHub Actions for build status
-2. Test the Function URLs:
+## Deployment Order
 
-```bash
-# Get Function URLs
-az functionapp function show \
-  --name ai-newspaper-rss-processor \
-  --resource-group ai-newspaper-rg \
-  --function-name RssProcessor \
-  --query invokeUrlTemplate -o tsv
+When deploying for the first time or after changes:
+
+### 1. Deploy Supporting Functions First (any order)
+- RssProcessor
+- ArticleSimplifier
+- ImageGenerator
+
+### 2. Deploy Orchestrator Last
+- NewspaperOrchestrator
+- This retrieves function keys from the other three
+- Automatically configures environment variables with authentication
+
+### Why This Order?
+
+The Orchestrator deployment script:
+1. Queries Azure to get URLs and keys for the three supporting functions
+2. Configures these as environment variables
+3. This fixes the **401 Unauthorized** error automatically!
+
+---
+
+## Fixing 401 Unauthorized Errors
+
+If you see 401 errors when the Orchestrator calls other functions:
+
+### Option 1: Redeploy the Orchestrator
+```powershell
+cd scripts
+.\deploy-orchestrator.ps1
 ```
 
-3. Test endpoints:
-```bash
-# RSS Processor
-curl -X POST https://ai-newspaper-rss-processor.azurewebsites.net/api/RssProcessor \
-  -H "Content-Type: application/json" \
-  -d '{"rssUrl": "https://example.com/rss", "audienceAge": 12}'
+This will automatically refresh the function keys.
 
-# Article Simplifier
-curl -X POST https://ai-newspaper-article-simplifier.azurewebsites.net/api/ArticleSimplifier \
-  -H "Content-Type: application/json" \
-  -d '{"articleUrl": "https://example.com/article", "audienceAge": 12}'
+### Option 2: Manually Update Environment Variables
 
-# Image Generator
-curl -X POST https://ai-newspaper-image-generator.azurewebsites.net/api/ImageGenerator \
-  -H "Content-Type: application/json" \
-  -d '{"articleTitle": "Title", "simplifiedArticle": "Text...", "audienceAge": 12}'
+1. Get function keys from Azure Portal:
+   - Go to each Function App → Functions → Click function → Function Keys → Copy "default"
+
+2. Update Orchestrator configuration:
+   - Go to **NewspaperOrchestrator** Function App
+   - Settings → Configuration → Application settings
+   - Update these values:
+
+```
+RSS_PROCESSOR_URL=https://ai-newspaper-rss-processor.azurewebsites.net/api/RssProcessor?code=<KEY>
+
+ARTICLE_SIMPLIFIER_URL=https://ai-newspaper-article-simplifier.azurewebsites.net/api/ArticleSimplifier?code=<KEY>
+
+IMAGE_GENERATOR_URL=https://ai-newspaper-image-generator.azurewebsites.net/api/ImageGenerator?code=<KEY>
 ```
 
-## Monitoring and Logs
+3. Save and restart the function app
 
-### View Logs in Azure Portal
-1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to your Function App
-3. Click **Log stream** or **Monitor** > **Logs**
-
-### View Logs via CLI
-```bash
-az webapp log tail \
-  --name ai-newspaper-rss-processor \
-  --resource-group ai-newspaper-rg
-```
-
-## Cost Management
-
-The Azure Functions use a **Consumption Plan** (Y1 SKU):
-- Pay only for execution time
-- Free tier includes:
-  - 1 million requests/month
-  - 400,000 GB-s execution time/month
-- Estimated cost: $0-5/month for light usage
-
-Monitor costs:
-```bash
-az consumption usage list \
-  --start-date 2026-01-01 \
-  --end-date 2026-01-31
-```
+---
 
 ## Troubleshooting
 
-### Deployment Fails
-1. Check GitHub Actions logs
-2. Verify all secrets are correctly configured
-3. Ensure Function App names are unique globally
+### Build Fails
+```powershell
+# Clean and rebuild
+cd lambdas/<FunctionName>
+dotnet clean
+dotnet restore
+dotnet build --configuration Release
+```
 
-### Function Returns 500 Error
-1. Check Application Insights logs
-2. Verify `CLAUDE_API_KEY` is set correctly:
-```bash
-az functionapp config appsettings list \
-  --name ai-newspaper-rss-processor \
+### Deployment Hangs
+```powershell
+# Check if you're logged into Azure
+az account show
+
+# If not, login again
+az login
+```
+
+### Function Keys Not Found
+- Ensure the other functions are deployed first
+- Check that function names in Azure match the expected names:
+  - `ai-newspaper-rss-processor`
+  - `ai-newspaper-article-simplifier`
+  - `ai-newspaper-image-generator`
+
+### CORS Issues
+The deployment scripts automatically configure CORS for Azure Portal.
+
+To add additional origins:
+```powershell
+az functionapp cors add \
+  --name <function-app-name> \
+  --resource-group ai-newspaper-rg \
+  --allowed-origins "https://yourdomain.com"
+```
+
+---
+
+## Environment Variables Reference
+
+### All Functions
+- `OPENAI_API_KEY` - Your OpenAI API key
+
+### ImageGenerator
+- `BLOB_CONTAINER_NAME` - Azure Storage container name (default: "batch-runs")
+
+### NewspaperOrchestrator
+- `RSS_PROCESSOR_URL` - URL with function key
+- `ARTICLE_SIMPLIFIER_URL` - URL with function key
+- `IMAGE_GENERATOR_URL` - URL with function key
+- `BLOB_CONTAINER_NAME` - Azure Storage container name
+- `DEFAULT_RSS_URL` - Default RSS feed URL
+
+---
+
+## Quick Reference
+
+### Deploy Everything (First Time)
+```powershell
+cd scripts
+.\deploy-rss-processor.ps1
+.\deploy-article-simplifier.ps1
+.\deploy-image-generator.ps1
+.\deploy-orchestrator.ps1
+```
+
+### Deploy Only Changed Function
+```powershell
+# If you only changed RssProcessor:
+.\deploy-rss-processor.ps1
+
+# Then refresh orchestrator config:
+.\deploy-orchestrator.ps1
+```
+
+### View Logs
+```powershell
+# Stream logs from Azure
+az webapp log tail \
+  --name <function-app-name> \
   --resource-group ai-newspaper-rg
 ```
-
-### Update Secrets
-```bash
-az functionapp config appsettings set \
-  --name ai-newspaper-rss-processor \
-  --resource-group ai-newspaper-rg \
-  --settings "CLAUDE_API_KEY=new-key-here"
-```
-
-## Cleanup
-
-To remove all resources:
-```bash
-az group delete --name ai-newspaper-rg --yes
-```
-
-## Next Steps
-
-- Set up custom domains
-- Configure Application Insights for monitoring
-- Add API Management for rate limiting
-- Set up staging slots for testing

@@ -1,12 +1,6 @@
-name: Deploy Azure Functions
+name: Deploy All Azure Functions (Manual)
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'lambdas/**'
-      - '.github/workflows/deploy-azure-functions.yml'
   workflow_dispatch:
 
 env:

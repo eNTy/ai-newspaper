@@ -1,0 +1,112 @@
+name: Deploy NewspaperOrchestrator
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'lambdas/NewspaperOrchestrator/**'
+      - '.github/workflows/deploy-orchestrator.yml'
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
+  AZURE_FUNCTIONAPP_NAME: 'ai-newspaper-orchestrator'
+  DEFAULT_RSS_URL: 'https://ct24.ceskatelevize.cz/rss/tema/vyber-redakce-84313'
+  BLOB_CONTAINER_NAME: 'batch-runs'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Login to Azure
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Build NewspaperOrchestrator
+      run: |
+        cd lambdas/NewspaperOrchestrator
+        dotnet restore
+        dotnet build --configuration Release
+        dotnet publish --configuration Release --output ./output
+
+    - name: Deploy to Azure Function App
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+        package: lambdas/NewspaperOrchestrator/output
+
+    - name: Get Function URLs and Keys
+      id: get-urls
+      run: |
+        RSS_URL=$(az functionapp function show \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-rss-processor \
+          --function-name RssProcessor \
+          --query invokeUrlTemplate -o tsv)
+
+        RSS_KEY=$(az functionapp function keys list \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-rss-processor \
+          --function-name RssProcessor \
+          --query default -o tsv)
+
+        SIMPLIFIER_URL=$(az functionapp function show \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-article-simplifier \
+          --function-name ArticleSimplifier \
+          --query invokeUrlTemplate -o tsv)
+
+        SIMPLIFIER_KEY=$(az functionapp function keys list \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-article-simplifier \
+          --function-name ArticleSimplifier \
+          --query default -o tsv)
+
+        IMAGE_URL=$(az functionapp function show \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-image-generator \
+          --function-name ImageGenerator \
+          --query invokeUrlTemplate -o tsv)
+
+        IMAGE_KEY=$(az functionapp function keys list \
+          -g ${{ env.AZURE_RESOURCE_GROUP }} \
+          -n ai-newspaper-image-generator \
+          --function-name ImageGenerator \
+          --query default -o tsv)
+
+        echo "RSS_PROCESSOR_URL=${RSS_URL}?code=${RSS_KEY}" >> $GITHUB_OUTPUT
+        echo "ARTICLE_SIMPLIFIER_URL=${SIMPLIFIER_URL}?code=${SIMPLIFIER_KEY}" >> $GITHUB_OUTPUT
+        echo "IMAGE_GENERATOR_URL=${IMAGE_URL}?code=${IMAGE_KEY}" >> $GITHUB_OUTPUT
+
+    - name: Configure App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --settings \
+            "RSS_PROCESSOR_URL=${{ steps.get-urls.outputs.RSS_PROCESSOR_URL }}" \
+            "ARTICLE_SIMPLIFIER_URL=${{ steps.get-urls.outputs.ARTICLE_SIMPLIFIER_URL }}" \
+            "IMAGE_GENERATOR_URL=${{ steps.get-urls.outputs.IMAGE_GENERATOR_URL }}" \
+            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
+            "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}"
+
+        az functionapp cors add \
+          --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --allowed-origins https://portal.azure.com
+
+    - name: Logout from Azure
+      run: az logout
+      if: always()

@@ -37,6 +37,7 @@ logs/
 # .NET / Azure Functions
 bin/
 obj/
+output/
 *.user
 *.suo
 local.settings.json
