@@ -169,31 +169,147 @@ family-friendly illustration. Focus on visual elements, composition, and style."
     {
         string fileName = "image.png";
 
-        // Create blob service client
-        var blobServiceClient = new BlobServiceClient(_storageConnectionString);
-
-        // Get or create container
-        var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
-        await containerClient.CreateIfNotExistsAsync(Azure.Storage.Blobs.Models.PublicAccessType.Blob);
-
-        // Use provided filename with folder path
-        var blobPath = string.IsNullOrEmpty(storageFolder)
-            ? fileName
-            : $"{storageFolder}/{fileName}";
-
-        var blobClient = containerClient.GetBlobClient(blobPath);
-
-        // Upload the image (overwrite if exists)
-        using var stream = new MemoryStream(imageData);
-        await blobClient.UploadAsync(stream, overwrite: true);
-
-        // Set content type
-        await blobClient.SetHttpHeadersAsync(new Azure.Storage.Blobs.Models.BlobHttpHeaders
+        try
         {
-            ContentType = "image/png"
-        });
+            // Validate inputs
+            if (imageData == null || imageData.Length == 0)
+            {
+                throw new ArgumentException("Image data is null or empty", nameof(imageData));
+            }
 
-        return blobClient.Uri.ToString();       
+            _logger.LogInformation("Uploading {Size} bytes to storage folder '{Folder}'", imageData.Length, storageFolder);
+
+            // Validate connection string
+            if (string.IsNullOrEmpty(_storageConnectionString))
+            {
+                throw new InvalidOperationException("Storage connection string is not configured. Check AzureWebJobsStorage environment variable.");
+            }
+
+            // Create blob service client
+            BlobServiceClient blobServiceClient;
+            try
+            {
+                blobServiceClient = new BlobServiceClient(_storageConnectionString);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Invalid storage connection string format");
+                throw new InvalidOperationException("Storage connection string has invalid format. Check AzureWebJobsStorage environment variable.", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create BlobServiceClient");
+                throw new InvalidOperationException("Failed to create blob storage client. Check AzureWebJobsStorage configuration.", ex);
+            }
+
+            // Get or create container
+            BlobContainerClient containerClient;
+            try
+            {
+                containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
+                _logger.LogInformation("Got container client for '{Container}'", _containerName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get container client for '{Container}'", _containerName);
+                throw new InvalidOperationException($"Failed to access blob container '{_containerName}'. Check BLOB_CONTAINER_NAME configuration.", ex);
+            }
+
+            // Create container if it doesn't exist
+            try
+            {
+                var createResponse = await containerClient.CreateIfNotExistsAsync(Azure.Storage.Blobs.Models.PublicAccessType.Blob);
+                if (createResponse != null && createResponse.Value != null)
+                {
+                    _logger.LogInformation("Created new container '{Container}'", _containerName);
+                }
+                else
+                {
+                    _logger.LogInformation("Container '{Container}' already exists", _containerName);
+                }
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 403)
+            {
+                _logger.LogError(ex, "Access denied when creating container. Check storage account permissions.");
+                throw new InvalidOperationException($"Access denied to storage container '{_containerName}'. The function may need 'Storage Blob Data Contributor' role.", ex);
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Container already exists, this is fine
+                _logger.LogInformation("Container '{Container}' already exists (409 conflict)", _containerName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create or access container '{Container}'", _containerName);
+                throw new InvalidOperationException($"Failed to create or access blob container '{_containerName}'.", ex);
+            }
+
+            // Use provided filename with folder path
+            var blobPath = string.IsNullOrEmpty(storageFolder)
+                ? fileName
+                : $"{storageFolder}/{fileName}";
+
+            _logger.LogInformation("Blob path: {Path}", blobPath);
+
+            BlobClient blobClient;
+            try
+            {
+                blobClient = containerClient.GetBlobClient(blobPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get blob client for path '{Path}'", blobPath);
+                throw new InvalidOperationException($"Failed to access blob at path '{blobPath}'.", ex);
+            }
+
+            // Upload the image (overwrite if exists)
+            try
+            {
+                using var stream = new MemoryStream(imageData);
+                _logger.LogInformation("Starting upload to '{Path}'...", blobPath);
+
+                var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
+                {
+                    HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
+                    {
+                        ContentType = "image/png"
+                    }
+                };
+
+                await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
+                _logger.LogInformation("Successfully uploaded blob to '{Path}'", blobPath);
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 403)
+            {
+                _logger.LogError(ex, "Access denied when uploading blob. Check storage account permissions.");
+                throw new InvalidOperationException("Access denied when uploading image to storage. The function may need 'Storage Blob Data Contributor' role.", ex);
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 413)
+            {
+                _logger.LogError(ex, "Blob too large ({Size} bytes)", imageData.Length);
+                throw new InvalidOperationException($"Image size ({imageData.Length} bytes) exceeds storage limits.", ex);
+            }
+            catch (Azure.RequestFailedException ex)
+            {
+                _logger.LogError(ex, "Azure storage request failed with status {Status}: {Message}", ex.Status, ex.Message);
+                throw new InvalidOperationException($"Azure storage upload failed (status {ex.Status}): {ex.Message}", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during blob upload");
+                throw new InvalidOperationException("Failed to upload image to storage.", ex);
+            }
+
+            var blobUrl = blobClient.Uri.ToString();
+            _logger.LogInformation("Image uploaded successfully: {Url}", blobUrl);
+
+            return blobUrl;
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException && ex is not ArgumentException)
+        {
+            _logger.LogError(ex, "Unexpected error in UploadToAzureStorageAsync");
+            throw new InvalidOperationException("An unexpected error occurred while uploading image to storage.", ex);
+        }
     }
 }
 
