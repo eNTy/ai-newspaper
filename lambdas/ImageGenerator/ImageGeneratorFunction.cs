@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Azure;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -192,7 +193,7 @@ family-friendly illustration. Focus on visual elements, composition, and style."
             ContentType = "image/png"
         });
 
-        return blobClient.Uri.ToString();
+        return blobClient.Uri.ToString();       
     }
 }
 
@@ -210,5 +211,4 @@ public class ImageGeneratorResponse
     public int AudienceAge { get; set; }
     public string ImageUrl { get; set; } = string.Empty;
     public string StorageFolder { get; set; } = string.Empty;
-    public string FileName { get; set; } = string.Empty;
 }
