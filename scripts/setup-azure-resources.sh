@@ -90,6 +90,55 @@ STORAGE_CONNECTION=$(az storage account show-connection-string \
     --query connectionString \
     --output tsv)
 
+# Create blob container for images
+echo ""
+echo "Creating blob container: batch-runs..."
+az storage container create \
+    --name "batch-runs" \
+    --account-name "$STORAGE_ACCOUNT" \
+    --connection-string "$STORAGE_CONNECTION" \
+    --public-access off
+check_error "Failed to create blob container"
+
+# Set lifecycle management policy to delete blobs after 30 days
+echo ""
+echo "Setting up lifecycle management policy (delete after 30 days)..."
+cat > /tmp/lifecycle-policy.json <<EOF
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "delete-old-batch-runs",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 30
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "batch-runs/"
+          ]
+        }
+      }
+    }
+  ]
+}
+EOF
+
+az storage account management-policy create \
+    --account-name "$STORAGE_ACCOUNT" \
+    --resource-group "$RESOURCE_GROUP" \
+    --policy @/tmp/lifecycle-policy.json
+check_error "Failed to create lifecycle management policy"
+rm /tmp/lifecycle-policy.json
+
 # Note: Using Consumption plan (serverless) - no separate plan creation needed
 echo ""
 echo "Note: Using Consumption plan (serverless) - Azure will create it automatically"

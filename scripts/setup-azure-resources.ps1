@@ -96,6 +96,67 @@ $storageConnection = az storage account show-connection-string `
     --query connectionString `
     --output tsv
 
+# Create blob container for images
+Write-Host ""
+Write-Host "Creating blob container: batch-runs..." -ForegroundColor Cyan
+az storage container create `
+    --name "batch-runs" `
+    --account-name $StorageAccount `
+    --connection-string $storageConnection `
+    --public-access off `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create blob container" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# Set lifecycle management policy to delete blobs after 30 days
+Write-Host ""
+Write-Host "Setting up lifecycle management policy (delete after 30 days)..." -ForegroundColor Cyan
+$lifecyclePolicy = @"
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "delete-old-batch-runs",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 30
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "batch-runs/"
+          ]
+        }
+      }
+    }
+  ]
+}
+"@
+
+$policyFile = "$env:TEMP\lifecycle-policy.json"
+$lifecyclePolicy | Out-File -FilePath $policyFile -Encoding utf8
+
+az storage account management-policy create `
+    --account-name $StorageAccount `
+    --resource-group $ResourceGroup `
+    --policy "@$policyFile"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create lifecycle management policy" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Remove-Item $policyFile
+
 # Note: For Azure Functions, we'll use Consumption plan (no need to create separate plan)
 # Azure will create it automatically with the function apps
 Write-Host ""
