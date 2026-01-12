@@ -123,46 +123,95 @@ Requirements:
 
     private async Task<byte[]> GenerateImageWithOpenAIAsync(string imagePrompt)
     {
-        // Step 1: Use GPT-4o to refine the image prompt
-        var refinementPrompt = $@"{imagePrompt}
+        const int maxRetries = 3;
+        int attempt = 0;
+        Exception? lastException = null;
+
+        while (attempt < maxRetries)
+        {
+            attempt++;
+            try
+            {
+                // Step 1: Use GPT-4o to refine the image prompt
+                var refinementPrompt = attempt == 1
+                    ? $@"{imagePrompt}
 
 Please refine this into a concise DALL-E prompt (max 400 characters) for a high-quality,
-family-friendly illustration. Focus on visual elements, composition, and style.";
+family-friendly illustration. Focus on visual elements, composition, and style."
+                    : $@"{imagePrompt}
 
-        var chatCompletion = await _chatClient.CompleteChatAsync(
-            [new UserChatMessage(refinementPrompt)],
-            new ChatCompletionOptions
+Please refine this into a concise DALL-E prompt (max 400 characters) for a high-quality,
+family-friendly illustration. Focus on visual elements, composition, and style.
+
+IMPORTANT: The previous attempt was rejected by content policy. Make this version MORE ABSTRACT and GENERIC.
+- Use symbolic or metaphorical representations instead of specific people or events
+- Focus on general concepts, objects, or nature scenes related to the topic
+- Avoid any potentially controversial elements
+- Keep it simple and universally appropriate";
+
+                var chatCompletion = await _chatClient.CompleteChatAsync(
+                    [new UserChatMessage(refinementPrompt)],
+                    new ChatCompletionOptions
+                    {
+                        MaxOutputTokenCount = 150,
+                        Temperature = attempt == 1 ? 0.8f : 0.5f // Lower temperature on retries for safer prompts
+                    });
+
+                var refinedPrompt = chatCompletion.Value.Content[0].Text.Trim();
+
+                _logger.LogInformation("Refined image prompt (attempt {Attempt}): {Prompt}", attempt, refinedPrompt);
+
+                // Step 2: Generate actual image with DALL-E
+                var imageGeneration = await _imageClient.GenerateImageAsync(
+                    refinedPrompt,
+                    new ImageGenerationOptions
+                    {
+                        Size = GeneratedImageSize.W1024xH1024,
+                        Quality = GeneratedImageQuality.Standard,
+                        ResponseFormat = GeneratedImageFormat.Uri
+                    });
+
+                var imageUrl = imageGeneration.Value.ImageUri;
+
+                _logger.LogInformation("Generated image URL: {Url}", imageUrl);
+
+                // Step 3: Download the generated image
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromMinutes(2);
+                var imageBytes = await httpClient.GetByteArrayAsync(imageUrl);
+
+                _logger.LogInformation("Downloaded image: {Size} bytes", imageBytes.Length);
+
+                return imageBytes;
+            }
+            catch (Exception ex) when (IsContentPolicyViolation(ex))
             {
-                MaxOutputTokenCount = 150,
-                Temperature = 0.8f
-            });
+                lastException = ex;
+                _logger.LogWarning("Content policy violation on attempt {Attempt}/{MaxRetries}. Error: {Error}. Will retry with adjusted prompt.",
+                    attempt, maxRetries, ex.Message);
 
-        var refinedPrompt = chatCompletion.Value.Content[0].Text.Trim();
+                if (attempt >= maxRetries)
+                {
+                    _logger.LogError("Failed to generate image after {MaxRetries} attempts due to content policy violations", maxRetries);
+                    throw new InvalidOperationException(
+                        $"Failed to generate image after {maxRetries} attempts. All prompts were rejected by content policy.", ex);
+                }
 
-        _logger.LogInformation("Refined image prompt: {Prompt}", refinedPrompt);
+                // Wait a bit before retrying
+                await Task.Delay(1000 * attempt);
+            }
+        }
 
-        // Step 2: Generate actual image with DALL-E
-        var imageGeneration = await _imageClient.GenerateImageAsync(
-            refinedPrompt,
-            new ImageGenerationOptions
-            {
-                Size = GeneratedImageSize.W1024xH1024,
-                Quality = GeneratedImageQuality.Standard,
-                ResponseFormat = GeneratedImageFormat.Uri
-            });
+        // This should never be reached, but just in case
+        throw lastException ?? new InvalidOperationException("Image generation failed for unknown reason");
+    }
 
-        var imageUrl = imageGeneration.Value.ImageUri;
-
-        _logger.LogInformation("Generated image URL: {Url}", imageUrl);
-
-        // Step 3: Download the generated image
-        using var httpClient = new HttpClient();
-        httpClient.Timeout = TimeSpan.FromMinutes(2);
-        var imageBytes = await httpClient.GetByteArrayAsync(imageUrl);
-
-        _logger.LogInformation("Downloaded image: {Size} bytes", imageBytes.Length);
-
-        return imageBytes;
+    private static bool IsContentPolicyViolation(Exception ex)
+    {
+        var message = ex.Message.ToLowerInvariant();
+        return message.Contains("content_policy_violation") ||
+               message.Contains("content policy") ||
+               (message.Contains("400") && message.Contains("safety"));
     }
 
     private async Task<string> UploadToAzureStorageAsync(byte[] imageData, string storageFolder)

@@ -20,7 +20,8 @@
       "Bash(git rm:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(dotnet list:*)"
     ]
   }
 }
