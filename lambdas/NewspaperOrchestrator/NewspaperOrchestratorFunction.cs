@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.DurableTask;
@@ -142,11 +144,15 @@ public class NewspaperOrchestratorFunction
         var audios = await Task.WhenAll(audioGenTasks);
         logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
 
-        // Step 4: Combine results
+        // Step 4: Combine results and save as JSON
         var processedArticles = new List<ProcessedArticle>();
+        var saveJsonTasks = new List<Task<SaveArticleJsonResponse>>();
+
         for (int i = 0; i < topArticles.TopArticles.Count; i++)
         {
-            processedArticles.Add(new ProcessedArticle
+            var storageFolder = $"{request.StorageFolder}/article-{i}";
+
+            var article = new ProcessedArticle
             {
                 Url = topArticles.TopArticles[i].Url,
                 Title = simplifiedArticles[i].Title,
@@ -154,8 +160,26 @@ public class NewspaperOrchestratorFunction
                 ImageUrl = images[i].ImageUrl,
                 ImageDescription = images[i].Description,
                 AudioUrl = audios[i].AudioUrl
-            });
+            };
+
+            processedArticles.Add(article);
+
+            // Save the complete article data as JSON
+            var saveJsonRequest = new SaveArticleJsonRequest
+            {
+                Article = article,
+                StorageFolder = storageFolder
+            };
+
+            var saveJsonTask = context.CallActivityAsync<SaveArticleJsonResponse>(
+                nameof(SaveArticleJson),
+                saveJsonRequest);
+
+            saveJsonTasks.Add(saveJsonTask);
         }
+
+        await Task.WhenAll(saveJsonTasks);
+        logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
 
         return new BatchResult
         {
@@ -302,6 +326,65 @@ public class NewspaperOrchestratorFunction
             logger.LogError(ex, "Failed to call Text-to-Speech. Status: {status}. " +
                 "Ensure TEXT_TO_SPEECH_URL is set and function key is available (via Key Vault or URL parameter)",
                 ex.StatusCode);
+            throw;
+        }
+    }
+
+    // Activity: Save article JSON to storage
+    [Function(nameof(SaveArticleJson))]
+    public async Task<SaveArticleJsonResponse> SaveArticleJson(
+        [ActivityTrigger] SaveArticleJsonRequest request,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(SaveArticleJson));
+        logger.LogInformation("Saving article JSON for: {title}", request.Article.Title);
+
+        var storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+            ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set");
+
+        var containerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
+            ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable is not set");
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(storageConnectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+
+            var blobPath = $"{request.StorageFolder}/article.json";
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            // Serialize the article to JSON
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            var jsonContent = JsonSerializer.Serialize(request.Article, jsonOptions);
+            var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
+
+            using var stream = new MemoryStream(jsonBytes);
+
+            var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
+            {
+                HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
+                {
+                    ContentType = "application/json"
+                }
+            };
+
+            await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
+
+            var blobUrl = blobClient.Uri.ToString();
+            logger.LogInformation("Saved article JSON to: {Url}", blobUrl);
+
+            return new SaveArticleJsonResponse
+            {
+                JsonUrl = blobUrl
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save article JSON. Ensure AzureWebJobsStorage and BLOB_CONTAINER_NAME are set");
             throw;
         }
     }

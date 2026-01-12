@@ -34,6 +34,8 @@ public class ArticleSimplifierRequest
 
 public class ArticleSimplifierResponse
 {
+    public string OriginalUrl { get; set; } = string.Empty;
+    public int AudienceAge { get; set; }
     public string Title { get; set; } = string.Empty;
     public string SimplifiedArticle { get; set; } = string.Empty;
 }
@@ -62,6 +64,17 @@ public class TextToSpeechRequest
 public class TextToSpeechResponse
 {
     public string AudioUrl { get; set; } = string.Empty;
+}
+
+public class SaveArticleJsonRequest
+{
+    public ProcessedArticle Article { get; set; } = new();
+    public string StorageFolder { get; set; } = string.Empty;
+}
+
+public class SaveArticleJsonResponse
+{
+    public string JsonUrl { get; set; } = string.Empty;
 }
 
 public class ProcessedArticle
