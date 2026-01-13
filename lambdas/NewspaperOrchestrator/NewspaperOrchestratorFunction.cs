@@ -412,8 +412,7 @@ public class NewspaperOrchestratorFunction
         try
         {
             // Call the health endpoint to trigger container spin-up
-            // Use a short timeout since we don't need to wait for the response
-            httpClient.Timeout = TimeSpan.FromSeconds(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(2);
 
             var healthUrl = _videoGeneratorUrl.TrimEnd('/') + "/health";
             logger.LogInformation("Warming up Video Generator container at: {url}", healthUrl);
