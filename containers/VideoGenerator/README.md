@@ -165,10 +165,12 @@ Errors are handled per-folder, not per-batch:
 
 ### Performance
 
-- **Sequential Processing**: Videos generated one at a time to avoid resource contention
+- **Sequential Processing**: Videos generated one at a time across ALL requests using a global semaphore
+- **Concurrency Control**: Semaphore ensures only one FFMPEG process runs at a time to prevent OOM
+- **Request Queuing**: Concurrent requests wait for their turn to process videos
 - **Temporary Storage**: Uses `/tmp` for intermediate files, cleaned up after each video
 - **Timeout**: Generous timeout (10 minutes) for batch operations
-- **Memory**: 2GB per instance, sufficient for FFMPEG operations
+- **Memory**: 2GB per instance, optimized for FFMPEG video processing with reduced resolution scaling
 
 ## Migration from Function App
 
@@ -186,6 +188,59 @@ This service replaces the legacy `lambdas/VideoGenerator` Azure Function:
 2. Update orchestrator `VIDEO_GENERATOR_URL` environment variable
 3. Test with new endpoint
 4. Delete old Function App and App Service Plan
+
+## Concurrency and Scaling
+
+### How Concurrent Requests Are Handled
+
+The VideoGenerator uses a **global semaphore** to ensure only one video generation happens at a time:
+
+1. **Single Request, Multiple Folders**: Processes folders sequentially within the request
+2. **Multiple Concurrent Requests**: Each request waits in line for the semaphore
+3. **Why?** FFMPEG video processing is memory and CPU intensive - running multiple in parallel would cause OOM
+
+### Example Scenario
+
+```
+Request A: Generate videos for [folder1, folder2, folder3]
+Request B: Generate videos for [folder4, folder5] (arrives while A is processing)
+
+Timeline:
+1. Request A acquires semaphore, starts folder1
+2. Request B waits for semaphore
+3. Request A finishes folder1, processes folder2
+4. Request B still waiting...
+5. Request A finishes folder3, releases semaphore
+6. Request B acquires semaphore, starts folder4
+7. Request B finishes, releases semaphore
+```
+
+### Scaling with Azure Container Apps
+
+- **min-replicas: 0** - Scales to zero when idle (cost savings)
+- **max-replicas: 10** - Can scale up to 10 instances for parallel processing
+- **Each instance** processes one video at a time (semaphore is per-instance)
+- **HTTP scaling rule** - Azure automatically creates new instances when requests queue up
+
+With 10 replicas, you can process **10 videos in parallel** (one per instance).
+
+### If You Need Higher Throughput
+
+Option 1: **Let Azure scale automatically** (recommended)
+- Azure will create more instances as requests pile up
+- Each instance handles one video at a time
+- Cost-effective: only pay for active instances
+
+Option 2: **Increase semaphore count** (not recommended)
+```csharp
+// Allow 2 concurrent videos per instance (requires 4GB memory)
+var videoGenerationSemaphore = new SemaphoreSlim(2, 2);
+```
+
+Option 3: **Set min-replicas > 0** to avoid cold starts
+```bash
+az containerapp update --min-replicas 1 --max-replicas 10
+```
 
 ## Troubleshooting
 

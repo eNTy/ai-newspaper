@@ -7,6 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services
 builder.Services.AddHttpClient();
 
+// Global semaphore to ensure only one video generation at a time
+// This prevents memory exhaustion from concurrent FFMPEG processes
+var videoGenerationSemaphore = new SemaphoreSlim(1, 1);
+
 var app = builder.Build();
 
 // Health check endpoint
@@ -37,14 +41,28 @@ app.MapPost("/api/generate", async (VideoGenerationRequest request, ILogger<Prog
 
         try
         {
-            var videoUrl = await GenerateVideoAsync(storageFolder, storageConnectionString, containerName, logger);
-            results.Add(new VideoGenerationResult
+            // Acquire semaphore to ensure only one video generation at a time
+            logger.LogInformation("Waiting for video generation slot...");
+            await videoGenerationSemaphore.WaitAsync();
+
+            try
             {
-                Folder = storageFolder,
-                Success = true,
-                VideoUrl = videoUrl
-            });
-            logger.LogInformation("Successfully generated video for folder: {StorageFolder}", storageFolder);
+                logger.LogInformation("Starting video generation for folder: {StorageFolder}", storageFolder);
+                var videoUrl = await GenerateVideoAsync(storageFolder, storageConnectionString, containerName, logger);
+                results.Add(new VideoGenerationResult
+                {
+                    Folder = storageFolder,
+                    Success = true,
+                    VideoUrl = videoUrl
+                });
+                logger.LogInformation("Successfully generated video for folder: {StorageFolder}", storageFolder);
+            }
+            finally
+            {
+                // Always release semaphore
+                videoGenerationSemaphore.Release();
+                logger.LogInformation("Released video generation slot");
+            }
         }
         catch (Exception ex)
         {
@@ -228,8 +246,8 @@ static async Task GenerateVideoWithFFMPEGAsync(string imagePath, string audioPat
     // Calculate pan speed for smooth panning
     var panSpeed = 0.5;
 
-    // Use higher resolution input for smoother effects
-    var zoomScale = "scale=3240:4050:force_original_aspect_ratio=increase,crop=3240:4050"; // Scale up 3x
+    // Use moderate resolution input for smoother effects (2x instead of 3x to reduce memory usage)
+    var zoomScale = "scale=2160:2700:force_original_aspect_ratio=increase,crop=2160:2700"; // Scale up 2x
 
     // Randomly select an effect
     var random = new Random();
@@ -267,7 +285,7 @@ static async Task GenerateVideoWithFFMPEGAsync(string imagePath, string audioPat
         filterComplex = $"{zoomPanFilter};[zoomed]null[final]";
     }
 
-    var arguments = $"-y -loop 1 -i \"{imagePath}\" -i \"{audioPath}\" -filter_complex \"{filterComplex}\" -map \"[final]\" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 192k -t {audioDuration} -pix_fmt yuv420p -movflags +faststart \"{outputPath}\"";
+    var arguments = $"-y -threads 2 -loop 1 -i \"{imagePath}\" -i \"{audioPath}\" -filter_complex \"{filterComplex}\" -map \"[final]\" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 192k -t {audioDuration} -pix_fmt yuv420p -movflags +faststart \"{outputPath}\"";
 
     logger.LogInformation("FFMPEG command: ffmpeg {Arguments}", arguments);
 
