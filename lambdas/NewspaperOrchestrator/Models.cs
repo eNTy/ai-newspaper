@@ -123,6 +123,12 @@ public class VideoResultItem
     public string? Error { get; set; }
 }
 
+// Request for checking video generation status
+public class CheckVideoStatusRequest
+{
+    public string JobId { get; set; } = string.Empty;
+}
+
 // Response from Container App async trigger
 public class VideoGenerationJobResponse
 {

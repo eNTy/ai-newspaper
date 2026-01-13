@@ -260,9 +260,10 @@ public class NewspaperOrchestratorFunction
                     var delaySeconds = Math.Min(5 + (attempt * 5), 30);
                     await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(delaySeconds), CancellationToken.None);
 
+                    var checkStatusRequest = new CheckVideoStatusRequest { JobId = jobId };
                     statusResponse = await context.CallActivityAsync<VideoGenerationStatusResponse>(
                         nameof(CheckVideoGenerationStatus),
-                        jobId);
+                        checkStatusRequest);
 
                     logger.LogInformation("Poll attempt {attempt}: Job {jobId} status is {status} ({processed}/{total})",
                         attempt + 1, jobId, statusResponse.Status, statusResponse.ProcessedFolders, statusResponse.TotalFolders);
@@ -540,11 +541,11 @@ public class NewspaperOrchestratorFunction
     // Activity: Check video generation job status
     [Function(nameof(CheckVideoGenerationStatus))]
     public async Task<VideoGenerationStatusResponse> CheckVideoGenerationStatus(
-        [ActivityTrigger] string jobId,
+        [ActivityTrigger] CheckVideoStatusRequest request,
         FunctionContext context)
     {
         var logger = context.GetLogger(nameof(CheckVideoGenerationStatus));
-        logger.LogInformation("Checking video generation status for job: {jobId}", jobId);
+        logger.LogInformation("Checking video generation status for job: {jobId}", request.JobId);
 
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
@@ -553,7 +554,7 @@ public class NewspaperOrchestratorFunction
         {
             httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-            var statusUrl = _videoGeneratorUrl.TrimEnd('/') + $"/api/generate/status/{jobId}";
+            var statusUrl = _videoGeneratorUrl.TrimEnd('/') + $"/api/generate/status/{request.JobId}";
             logger.LogInformation("Querying status GET {url}", statusUrl);
 
             var response = await httpClient.GetAsync(statusUrl);
@@ -563,11 +564,11 @@ public class NewspaperOrchestratorFunction
 
             if (result == null)
             {
-                throw new InvalidOperationException($"Failed to get status for job {jobId}");
+                throw new InvalidOperationException($"Failed to get status for job {request.JobId}");
             }
 
             logger.LogInformation("Job {jobId} status: {status}, Processed: {processed}/{total}",
-                jobId, result.Status, result.ProcessedFolders, result.TotalFolders);
+                request.JobId, result.Status, result.ProcessedFolders, result.TotalFolders);
 
             return result;
         }
