@@ -288,7 +288,7 @@ static async Task GenerateVideoWithFFMPEGAsync(string imagePath, string audioPat
         filterComplex = $"{zoomPanFilter};[zoomed]null[final]";
     }
 
-    var arguments = $"-y -threads 2 -loop 1 -i \"{imagePath}\" -i \"{audioPath}\" -filter_complex \"{filterComplex}\" -map \"[final]\" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 192k -t {audioDuration} -pix_fmt yuv420p -movflags +faststart \"{outputPath}\"";
+    var arguments = $"-y -threads 2 -loop 1 -i \"{imagePath}\" -i \"{audioPath}\" -filter_complex \"{filterComplex}\" -map \"[final]\" -map 1:a -c:v libx264 -preset faster -crf 23 -c:a aac -b:a 192k -t {audioDuration} -pix_fmt yuv420p -movflags +faststart \"{outputPath}\"";
 
     logger.LogInformation("FFMPEG command: ffmpeg {Arguments}", arguments);
 

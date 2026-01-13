@@ -27,7 +27,8 @@
       "Bash(Where-Object { $_MainWindowTitle -match \"azurite\" -or $_CommandLine -match \"azurite\" })",
       "Bash(Stop-Process -Force)",
       "Bash(az containerapp show:*)",
-      "Bash(az containerapp env show:*)"
+      "Bash(az containerapp env show:*)",
+      "Bash(az containerapp update:*)"
     ]
   }
 }

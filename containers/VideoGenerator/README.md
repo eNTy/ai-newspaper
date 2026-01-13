@@ -171,6 +171,7 @@ Errors are handled per-folder, not per-batch:
 - **Temporary Storage**: Uses `/tmp` for intermediate files, cleaned up after each video
 - **Timeout**: Generous timeout (10 minutes) for batch operations
 - **Memory**: 2GB per instance, optimized for FFMPEG video processing with reduced resolution scaling
+- **FFMPEG Preset**: `faster` for improved processing speed (~30% faster than medium)
 
 ## Migration from Function App
 
@@ -303,6 +304,18 @@ az containerapp logs show \
 - **Error**: Failures (FFMPEG errors, OOM issues, upload failures)
 
 ## Troubleshooting
+
+### 504 Gateway Timeout from Orchestrator
+
+If the NewspaperOrchestrator gets a 504 timeout after exactly 240 seconds, see **[TIMEOUT-ISSUES.md](TIMEOUT-ISSUES.md)** for detailed explanation and solutions.
+
+**Applied optimizations:**
+- ✅ FFMPEG preset changed to `faster` (~30% speed improvement)
+- ✅ Resolution scaling reduced to 2x (memory and speed optimized)
+- ✅ Thread limit set to 2 (prevents resource contention)
+- ✅ Scale-to-zero enabled (cost-effective)
+
+**Root cause:** Azure Container Apps has a hard 240-second ingress timeout that cannot be changed.
 
 ### Container won't start
 - Check Docker is running: `docker ps`

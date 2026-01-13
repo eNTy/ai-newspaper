@@ -412,8 +412,6 @@ public class NewspaperOrchestratorFunction
             return false;
         }
 
-        logger.LogInformation("Warming up Video Generator container at: {url}", _videoGeneratorUrl);
-
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
@@ -424,6 +422,8 @@ public class NewspaperOrchestratorFunction
             httpClient.Timeout = TimeSpan.FromSeconds(5);
 
             var healthUrl = _videoGeneratorUrl.TrimEnd('/') + "/health";
+            logger.LogInformation("Warming up Video Generator container at: {url}", healthUrl);
+
             var response = await httpClient.GetAsync(healthUrl);
 
             if (response.IsSuccessStatusCode)
@@ -454,6 +454,11 @@ public class NewspaperOrchestratorFunction
         var logger = context.GetLogger(nameof(GenerateVideos));
         logger.LogInformation("Generating videos for {count} articles", request.StorageFolders?.Length ?? 0);
 
+        if (string.IsNullOrEmpty(_videoGeneratorUrl))
+        {
+            throw new InvalidOperationException("VIDEO_GENERATOR_URL is not configured");
+        }
+
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
@@ -463,9 +468,20 @@ public class NewspaperOrchestratorFunction
         try
         {
             // Container App may take longer for video processing, set generous timeout
+            // NOTE: Azure Container Apps has a 240-second ingress timeout that cannot be overridden
+            // If video generation takes longer, consider keeping min replicas > 0 or using async pattern
             httpClient.Timeout = TimeSpan.FromMinutes(10);
 
-            var response = await httpClient.PostAsync(_videoGeneratorUrl, content);
+            var generateUrl = _videoGeneratorUrl.TrimEnd('/') + "/api/generate";
+            logger.LogInformation("Sending HTTP request POST {url}", generateUrl);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            var response = await httpClient.PostAsync(generateUrl, content);
+
+            stopwatch.Stop();
+            logger.LogInformation("Received HTTP response headers after {elapsed}ms - {statusCode}",
+                stopwatch.Elapsed.TotalMilliseconds, (int)response.StatusCode);
+
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<ContainerAppVideoResponse>();

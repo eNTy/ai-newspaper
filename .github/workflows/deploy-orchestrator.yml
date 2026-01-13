@@ -155,7 +155,7 @@ jobs:
           --output tsv 2>/dev/null || echo "")
 
         if [ -n "$VIDEO_GEN_FQDN" ]; then
-          VIDEO_GEN_URL="https://${VIDEO_GEN_FQDN}/api/generate"
+          VIDEO_GEN_URL="https://${VIDEO_GEN_FQDN}"
         else
           VIDEO_GEN_URL=""
         fi
