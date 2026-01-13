@@ -609,7 +609,7 @@ public class NewspaperOrchestratorFunction
             ?? throw new InvalidOperationException("DEFAULT_RSS_URL environment variable is not set");
 
         // Define the age groups to process
-        var ageGroups = new[] { 8, 12, 16 };
+        var ageGroups = new[] { 16 };
 
         // Start orchestrations for each age group in parallel
         var orchestrationTasks = new List<Task<string>>();
