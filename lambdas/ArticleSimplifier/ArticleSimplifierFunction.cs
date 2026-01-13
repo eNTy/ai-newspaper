@@ -227,9 +227,11 @@ Please rewrite the following news article for {ageDescription} (age {audienceAge
 
 Requirements:
 - Keep it to EXACTLY ONE PARAGRAPH only
+- This article will be READ ALOUD and must take NO MORE THAN 30 SECONDS to read
+- Keep it SHORT and CONCISE (approximately 60-80 words maximum)
 - Keep the article in its ORIGINAL LANGUAGE - do NOT translate it
 - Use age-appropriate vocabulary and sentence structure
-- Maintain the key facts and main points
+- Maintain only the most important key facts and main points
 - Make it engaging and easy to understand
 - Remove any inappropriate content for this age group
 
