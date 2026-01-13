@@ -18,7 +18,7 @@ public class NewspaperOrchestratorFunction
     private readonly string _articleSimplifierUrl;
     private readonly string _imageGeneratorUrl;
     private readonly string _textToSpeechUrl;
-    private readonly string? _videoGeneratorUrl;
+    private readonly string _videoGeneratorUrl;
     private readonly string _storageConnectionString;
     private readonly string _blobContainerName;
 
@@ -45,9 +45,9 @@ public class NewspaperOrchestratorFunction
         _blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
             ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable is not set");
 
-        // Video generator is optional
-        _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL");
-
+        _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
+            ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
+       
         _logger.LogInformation("NewspaperOrchestratorFunction initialized with all required configuration");
     }
 
@@ -406,12 +406,6 @@ public class NewspaperOrchestratorFunction
     {
         var logger = context.GetLogger(nameof(WarmupVideoGenerator));
 
-        if (string.IsNullOrEmpty(_videoGeneratorUrl))
-        {
-            logger.LogInformation("VIDEO_GENERATOR_URL not configured, skipping container warmup");
-            return false;
-        }
-
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
@@ -453,11 +447,6 @@ public class NewspaperOrchestratorFunction
     {
         var logger = context.GetLogger(nameof(GenerateVideos));
         logger.LogInformation("Generating videos for {count} articles", request.StorageFolders?.Length ?? 0);
-
-        if (string.IsNullOrEmpty(_videoGeneratorUrl))
-        {
-            throw new InvalidOperationException("VIDEO_GENERATOR_URL is not configured");
-        }
 
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
