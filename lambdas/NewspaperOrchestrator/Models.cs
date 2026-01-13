@@ -123,8 +123,23 @@ public class VideoResultItem
     public string? Error { get; set; }
 }
 
-// Response from Container App (matches the actual API response structure)
-public class ContainerAppVideoResponse
+// Response from Container App async trigger
+public class VideoGenerationJobResponse
 {
+    public string JobId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
+
+// Response from Container App status query
+public class VideoGenerationStatusResponse
+{
+    public string JobId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public int TotalFolders { get; set; }
+    public int ProcessedFolders { get; set; }
     public List<VideoResultItem>? Results { get; set; }
+    public string? ErrorMessage { get; set; }
 }

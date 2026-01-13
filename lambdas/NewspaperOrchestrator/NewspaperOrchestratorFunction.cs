@@ -217,7 +217,7 @@ public class NewspaperOrchestratorFunction
         await Task.WhenAll(saveJsonTasks);
         logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
 
-        // Step 5: Generate videos for all articles in batch
+        // Step 5: Generate videos for all articles in batch (async pattern)
         string? videoBatchResult = null;
 
         // Ensure the warmup task completed before generating videos
@@ -232,7 +232,7 @@ public class NewspaperOrchestratorFunction
             logger.LogWarning(ex, "Container warmup task failed (non-critical)");
         }
 
-        // Only proceed with video generation if warmup was successful (URL is configured and warmup succeeded)
+        // Only proceed with video generation if warmup was successful
         if (warmupSuccessful)
         {
             try
@@ -242,12 +242,67 @@ public class NewspaperOrchestratorFunction
                     StorageFolders = processedArticles.Select((_, i) => $"{request.StorageFolder}/article-{i}").ToArray()
                 };
 
-                var videoResult = await context.CallActivityAsync<VideoGeneratorResponse>(
+                // Trigger async video generation job
+                var jobId = await context.CallActivityAsync<string>(
                     nameof(GenerateVideos),
                     videoRequest);
 
-                videoBatchResult = $"Generated {videoResult.SuccessCount}/{videoResult.TotalCount} videos successfully";
-                logger.LogInformation(videoBatchResult);
+                logger.LogInformation("Video generation job started: {jobId}", jobId);
+
+                // Poll for completion with exponential backoff
+                var maxAttempts = 60; // Max 10 minutes (with increasing delays)
+                var attempt = 0;
+                VideoGenerationStatusResponse? statusResponse = null;
+
+                while (attempt < maxAttempts)
+                {
+                    // Wait before checking status (exponential backoff: 5s, 10s, 15s, 20s, max 30s)
+                    var delaySeconds = Math.Min(5 + (attempt * 5), 30);
+                    await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(delaySeconds), CancellationToken.None);
+
+                    statusResponse = await context.CallActivityAsync<VideoGenerationStatusResponse>(
+                        nameof(CheckVideoGenerationStatus),
+                        jobId);
+
+                    logger.LogInformation("Poll attempt {attempt}: Job {jobId} status is {status} ({processed}/{total})",
+                        attempt + 1, jobId, statusResponse.Status, statusResponse.ProcessedFolders, statusResponse.TotalFolders);
+
+                    if (statusResponse.Status == "Completed" || statusResponse.Status == "Failed")
+                    {
+                        break;
+                    }
+
+                    attempt++;
+                }
+
+                if (statusResponse == null)
+                {
+                    videoBatchResult = "Video generation status unknown";
+                }
+                else if (statusResponse.Status == "Completed")
+                {
+                    var successCount = statusResponse.Results?.Count(r => r.Success) ?? 0;
+                    var totalCount = statusResponse.TotalFolders;
+                    videoBatchResult = $"Generated {successCount}/{totalCount} videos successfully";
+                    logger.LogInformation(videoBatchResult);
+
+                    // Log any failures
+                    var failures = statusResponse.Results?.Where(r => !r.Success).ToList() ?? new List<VideoResultItem>();
+                    foreach (var failure in failures)
+                    {
+                        logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
+                    }
+                }
+                else if (statusResponse.Status == "Failed")
+                {
+                    videoBatchResult = $"Video generation failed: {statusResponse.ErrorMessage}";
+                    logger.LogWarning(videoBatchResult);
+                }
+                else if (attempt >= maxAttempts)
+                {
+                    videoBatchResult = $"Video generation timed out after {maxAttempts} attempts (status: {statusResponse.Status})";
+                    logger.LogWarning(videoBatchResult);
+                }
             }
             catch (Exception ex)
             {
@@ -438,14 +493,14 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    // Activity: Generate videos for articles
+    // Activity: Trigger async video generation job
     [Function(nameof(GenerateVideos))]
-    public async Task<VideoGeneratorResponse> GenerateVideos(
+    public async Task<string> GenerateVideos(
         [ActivityTrigger] VideoGeneratorRequest request,
         FunctionContext context)
     {
         var logger = context.GetLogger(nameof(GenerateVideos));
-        logger.LogInformation("Generating videos for {count} articles", request.StorageFolders?.Length ?? 0);
+        logger.LogInformation("Triggering async video generation for {count} articles", request.StorageFolders?.Length ?? 0);
 
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
@@ -455,59 +510,71 @@ public class NewspaperOrchestratorFunction
 
         try
         {
-            // Container App may take longer for video processing, set generous timeout
-            // NOTE: Azure Container Apps has a 240-second ingress timeout that cannot be overridden
-            // If video generation takes longer, consider keeping min replicas > 0 or using async pattern
-            httpClient.Timeout = TimeSpan.FromMinutes(10);
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
 
             var generateUrl = _videoGeneratorUrl.TrimEnd('/') + "/api/generate";
-            logger.LogInformation("Sending HTTP request POST {url}", generateUrl);
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            logger.LogInformation("Sending async video generation request POST {url}", generateUrl);
 
             var response = await httpClient.PostAsync(generateUrl, content);
-
-            stopwatch.Stop();
-            logger.LogInformation("Received HTTP response headers after {elapsed}ms - {statusCode}",
-                stopwatch.Elapsed.TotalMilliseconds, (int)response.StatusCode);
-
             response.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<ContainerAppVideoResponse>();
+            var result = await response.Content.ReadFromJsonAsync<VideoGenerationJobResponse>();
 
-            if (result?.Results == null)
+            if (result == null || string.IsNullOrEmpty(result.JobId))
             {
-                return new VideoGeneratorResponse { SuccessCount = 0, TotalCount = 0 };
+                throw new InvalidOperationException("Failed to get job ID from video generation service");
             }
 
-            var successCount = result.Results.Count(r => r.Success);
-            var totalCount = result.Results.Count;
-
-            logger.LogInformation("Video generation completed: {success}/{total} successful", successCount, totalCount);
-
-            // Log any failures
-            var failures = result.Results.Where(r => !r.Success).ToList();
-            foreach (var failure in failures)
-            {
-                logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
-            }
-
-            return new VideoGeneratorResponse
-            {
-                SuccessCount = successCount,
-                TotalCount = totalCount,
-                Results = result.Results
-            };
+            logger.LogInformation("Video generation job created: {jobId}", result.JobId);
+            return result.JobId;
         }
         catch (HttpRequestException ex)
         {
-            logger.LogError(ex, "Failed to call Video Generator. Status: {status}. " +
+            logger.LogError(ex, "Failed to trigger video generation. Status: {status}. " +
                 "Ensure VIDEO_GENERATOR_URL is set and Container App is accessible",
                 ex.StatusCode);
             throw;
         }
-        catch (TaskCanceledException ex)
+    }
+
+    // Activity: Check video generation job status
+    [Function(nameof(CheckVideoGenerationStatus))]
+    public async Task<VideoGenerationStatusResponse> CheckVideoGenerationStatus(
+        [ActivityTrigger] string jobId,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(CheckVideoGenerationStatus));
+        logger.LogInformation("Checking video generation status for job: {jobId}", jobId);
+
+        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
+        var httpClient = httpClientFactory!.CreateClient();
+
+        try
         {
-            logger.LogError(ex, "Video generation timed out. This may indicate the Container App needs more time or resources.");
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+            var statusUrl = _videoGeneratorUrl.TrimEnd('/') + $"/api/generate/status/{jobId}";
+            logger.LogInformation("Querying status GET {url}", statusUrl);
+
+            var response = await httpClient.GetAsync(statusUrl);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<VideoGenerationStatusResponse>();
+
+            if (result == null)
+            {
+                throw new InvalidOperationException($"Failed to get status for job {jobId}");
+            }
+
+            logger.LogInformation("Job {jobId} status: {status}, Processed: {processed}/{total}",
+                jobId, result.Status, result.ProcessedFolders, result.TotalFolders);
+
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to check video generation status. Status: {status}",
+                ex.StatusCode);
             throw;
         }
     }
@@ -608,7 +675,7 @@ public class NewspaperOrchestratorFunction
             ?? throw new InvalidOperationException("DEFAULT_RSS_URL environment variable is not set");
 
         // Define the age groups to process
-        var ageGroups = new[] { 16 };
+        var ageGroups = new[] { 8, 12,16 };
 
         // Start orchestrations for each age group in parallel
         var orchestrationTasks = new List<Task<string>>();

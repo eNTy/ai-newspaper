@@ -1,4 +1,5 @@
 using Azure.Storage.Blobs;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -14,15 +15,18 @@ builder.Services.AddApplicationInsightsTelemetry();
 // This prevents memory exhaustion from concurrent FFMPEG processes
 var videoGenerationSemaphore = new SemaphoreSlim(1, 1);
 
+// In-memory job store for tracking async video generation jobs
+var jobStore = new ConcurrentDictionary<string, VideoGenerationJob>();
+
 var app = builder.Build();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-// Video generation endpoint
-app.MapPost("/api/generate", async (VideoGenerationRequest request, ILogger<Program> logger) =>
+// Video generation endpoint - triggers generation and returns job ID
+app.MapPost("/api/generate", (VideoGenerationRequest request, ILogger<Program> logger) =>
 {
-    logger.LogInformation("Received video generation request for {Count} folders", request.StorageFolders?.Length ?? 0);
+    logger.LogInformation("Received async video generation request for {Count} folders", request.StorageFolders?.Length ?? 0);
 
     if (request.StorageFolders == null || request.StorageFolders.Length == 0)
     {
@@ -30,59 +34,142 @@ app.MapPost("/api/generate", async (VideoGenerationRequest request, ILogger<Prog
         return Results.BadRequest(new { error = "StorageFolders array is required and cannot be empty" });
     }
 
-    var storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
-        ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable not set");
-
-    var containerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
-        ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable not set");
-
-    var results = new List<VideoGenerationResult>();
-
-    foreach (var storageFolder in request.StorageFolders)
+    // Create a new job
+    var jobId = Guid.NewGuid().ToString();
+    var job = new VideoGenerationJob
     {
-        logger.LogInformation("Processing folder: {StorageFolder}", storageFolder);
+        JobId = jobId,
+        StorageFolders = request.StorageFolders,
+        Status = JobStatus.Queued,
+        CreatedAt = DateTime.UtcNow,
+        TotalFolders = request.StorageFolders.Length,
+        ProcessedFolders = 0
+    };
+
+    jobStore[jobId] = job;
+    logger.LogInformation("Created job {JobId} for {Count} folders", jobId, request.StorageFolders.Length);
+
+    // Start background processing
+    _ = Task.Run(async () =>
+    {
+        if (!jobStore.TryGetValue(jobId, out var bgJob))
+        {
+            logger.LogError("Job {JobId} not found in store", jobId);
+            return;
+        }
+
+        logger.LogInformation("Starting background processing for job {JobId}", jobId);
 
         try
         {
-            // Acquire semaphore to ensure only one video generation at a time
-            logger.LogInformation("Waiting for video generation slot...");
-            await videoGenerationSemaphore.WaitAsync();
+            bgJob.Status = JobStatus.Processing;
 
-            try
+            var storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+                ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable not set");
+
+            var containerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
+                ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable not set");
+
+            foreach (var storageFolder in bgJob.StorageFolders)
             {
-                logger.LogInformation("Starting video generation for folder: {StorageFolder}", storageFolder);
-                var videoUrl = await GenerateVideoAsync(storageFolder, storageConnectionString, containerName, logger);
-                results.Add(new VideoGenerationResult
+                logger.LogInformation("Processing folder: {StorageFolder} for job {JobId}", storageFolder, jobId);
+
+                try
                 {
-                    Folder = storageFolder,
-                    Success = true,
-                    VideoUrl = videoUrl
-                });
-                logger.LogInformation("Successfully generated video for folder: {StorageFolder}", storageFolder);
+                    // Acquire semaphore to ensure only one video generation at a time
+                    logger.LogInformation("Waiting for video generation slot for job {JobId}...", jobId);
+                    await videoGenerationSemaphore.WaitAsync();
+
+                    try
+                    {
+                        logger.LogInformation("Starting video generation for folder: {StorageFolder} (job {JobId})", storageFolder, jobId);
+                        var videoUrl = await GenerateVideoAsync(storageFolder, storageConnectionString, containerName, logger);
+
+                        bgJob.Results.Add(new VideoGenerationResult
+                        {
+                            Folder = storageFolder,
+                            Success = true,
+                            VideoUrl = videoUrl
+                        });
+
+                        logger.LogInformation("Successfully generated video for folder: {StorageFolder} (job {JobId})", storageFolder, jobId);
+                    }
+                    finally
+                    {
+                        // Always release semaphore
+                        videoGenerationSemaphore.Release();
+                        logger.LogInformation("Released video generation slot for job {JobId}", jobId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to generate video for folder: {StorageFolder} (job {JobId})", storageFolder, jobId);
+                    bgJob.Results.Add(new VideoGenerationResult
+                    {
+                        Folder = storageFolder,
+                        Success = false,
+                        Error = ex.Message
+                    });
+                }
+                finally
+                {
+                    bgJob.ProcessedFolders++;
+                }
             }
-            finally
-            {
-                // Always release semaphore
-                videoGenerationSemaphore.Release();
-                logger.LogInformation("Released video generation slot");
-            }
+
+            bgJob.Status = JobStatus.Completed;
+            bgJob.CompletedAt = DateTime.UtcNow;
+
+            var successCount = bgJob.Results.Count(r => r.Success);
+            logger.LogInformation("Completed job {JobId}. Success: {SuccessCount}/{TotalCount}",
+                jobId, successCount, bgJob.Results.Count);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to generate video for folder: {StorageFolder}", storageFolder);
-            results.Add(new VideoGenerationResult
-            {
-                Folder = storageFolder,
-                Success = false,
-                Error = ex.Message
-            });
+            logger.LogError(ex, "Job {JobId} failed with exception", jobId);
+            bgJob.Status = JobStatus.Failed;
+            bgJob.CompletedAt = DateTime.UtcNow;
+            bgJob.ErrorMessage = ex.Message;
         }
+    });
+
+    return Results.Accepted($"/api/generate/status/{jobId}", new
+    {
+        jobId,
+        status = job.Status.ToString(),
+        message = "Job queued successfully. Use the jobId to check status."
+    });
+});
+
+// Status query endpoint - check job progress and get results
+app.MapGet("/api/generate/status/{jobId}", (string jobId, ILogger<Program> logger) =>
+{
+    logger.LogInformation("Status check requested for job {JobId}", jobId);
+
+    if (!jobStore.TryGetValue(jobId, out var job))
+    {
+        logger.LogWarning("Job not found: {JobId}", jobId);
+        return Results.NotFound(new { error = $"Job {jobId} not found" });
     }
 
-    var successCount = results.Count(r => r.Success);
-    logger.LogInformation("Completed batch processing. Success: {SuccessCount}/{TotalCount}", successCount, results.Count);
+    var response = new
+    {
+        jobId = job.JobId,
+        status = job.Status.ToString(),
+        createdAt = job.CreatedAt,
+        completedAt = job.CompletedAt,
+        totalFolders = job.TotalFolders,
+        processedFolders = job.ProcessedFolders,
+        results = job.Results,
+        errorMessage = job.ErrorMessage
+    };
 
-    return Results.Ok(new { results });
+    logger.LogInformation("Job {JobId} status: {Status}, Processed: {Processed}/{Total}",
+        jobId, job.Status, job.ProcessedFolders, job.TotalFolders);
+
+    return job.Status == JobStatus.Completed || job.Status == JobStatus.Failed
+        ? Results.Ok(response)
+        : Results.Ok(response);
 });
 
 app.Run();
@@ -434,4 +521,26 @@ public class ArticleMetadata
     public string? ImageUrl { get; set; }
     public string? ImageDescription { get; set; }
     public string? AudioUrl { get; set; }
+}
+
+// Async job tracking models
+public enum JobStatus
+{
+    Queued,
+    Processing,
+    Completed,
+    Failed
+}
+
+public class VideoGenerationJob
+{
+    public string JobId { get; set; } = string.Empty;
+    public string[] StorageFolders { get; set; } = Array.Empty<string>();
+    public JobStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public List<VideoGenerationResult> Results { get; set; } = new();
+    public string? ErrorMessage { get; set; }
+    public int TotalFolders { get; set; }
+    public int ProcessedFolders { get; set; }
 }
