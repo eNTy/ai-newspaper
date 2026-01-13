@@ -14,10 +14,41 @@ namespace NewspaperOrchestrator;
 public class NewspaperOrchestratorFunction
 {
     private readonly ILogger<NewspaperOrchestratorFunction> _logger;
+    private readonly string _rssProcessorUrl;
+    private readonly string _articleSimplifierUrl;
+    private readonly string _imageGeneratorUrl;
+    private readonly string _textToSpeechUrl;
+    private readonly string? _videoGeneratorUrl;
+    private readonly string _storageConnectionString;
+    private readonly string _blobContainerName;
 
     public NewspaperOrchestratorFunction(ILogger<NewspaperOrchestratorFunction> logger)
     {
         _logger = logger;
+
+        // Fetch all required configuration at startup - fail fast if missing
+        _rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL")
+            ?? throw new InvalidOperationException("RSS_PROCESSOR_URL environment variable is not set");
+
+        _articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL")
+            ?? throw new InvalidOperationException("ARTICLE_SIMPLIFIER_URL environment variable is not set");
+
+        _imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL")
+            ?? throw new InvalidOperationException("IMAGE_GENERATOR_URL environment variable is not set");
+
+        _textToSpeechUrl = Environment.GetEnvironmentVariable("TEXT_TO_SPEECH_URL")
+            ?? throw new InvalidOperationException("TEXT_TO_SPEECH_URL environment variable is not set");
+
+        _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+            ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set");
+
+        _blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
+            ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable is not set");
+
+        // Video generator is optional
+        _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL");
+
+        _logger.LogInformation("NewspaperOrchestratorFunction initialized with all required configuration");
     }
 
     // HTTP Trigger to start the orchestration
@@ -68,6 +99,11 @@ public class NewspaperOrchestratorFunction
         var logger = context.CreateReplaySafeLogger<NewspaperOrchestratorFunction>();
 
         logger.LogInformation("Processing RSS feed: {rssUrl} for age: {age}", request.RssUrl, request.AudienceAge);
+
+        // Step 0: Warm up the Video Generator container app (async, don't wait)
+        // This triggers the container to spin up as early as possible so it's ready when we need it
+        logger.LogInformation("Starting Video Generator container warmup");
+        var warmupTask = context.CallActivityAsync<bool>(nameof(WarmupVideoGenerator));
 
         // Step 1: Fetch top 3 articles from RSS
         var rssRequest = new RssProcessorRequest
@@ -182,10 +218,22 @@ public class NewspaperOrchestratorFunction
         logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
 
         // Step 5: Generate videos for all articles in batch
-        var videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL");
         string? videoBatchResult = null;
 
-        if (!string.IsNullOrEmpty(videoGeneratorUrl))
+        // Ensure the warmup task completed before generating videos
+        bool warmupSuccessful = false;
+        try
+        {
+            warmupSuccessful = await warmupTask;
+            logger.LogInformation("Container warmup completed (success: {success})", warmupSuccessful);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Container warmup task failed (non-critical)");
+        }
+
+        // Only proceed with video generation if warmup was successful (URL is configured and warmup succeeded)
+        if (warmupSuccessful)
         {
             try
             {
@@ -209,8 +257,8 @@ public class NewspaperOrchestratorFunction
         }
         else
         {
-            logger.LogInformation("VIDEO_GENERATOR_URL not configured, skipping video generation");
-            videoBatchResult = "Video generation skipped (URL not configured)";
+            logger.LogInformation("Skipping video generation (warmup was not successful)");
+            videoBatchResult = "Video generation skipped (warmup unsuccessful or URL not configured)";
         }
 
         return new BatchResult
@@ -235,15 +283,12 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL")
-            ?? throw new InvalidOperationException("RSS_PROCESSOR_URL environment variable is not set");
-
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
 
         try
         {
-            var response = await httpClient.PostAsync(rssProcessorUrl, content);
+            var response = await httpClient.PostAsync(_rssProcessorUrl, content);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<RssProcessorResponse>();
@@ -270,15 +315,12 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL")
-            ?? throw new InvalidOperationException("ARTICLE_SIMPLIFIER_URL environment variable is not set");
-
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
 
         try
         {
-            var response = await httpClient.PostAsync(articleSimplifierUrl, content);
+            var response = await httpClient.PostAsync(_articleSimplifierUrl, content);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<ArticleSimplifierResponse>();
@@ -305,15 +347,12 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL")
-            ?? throw new InvalidOperationException("IMAGE_GENERATOR_URL environment variable is not set");
-
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
 
         try
         {
-            var response = await httpClient.PostAsync(imageGeneratorUrl, content);
+            var response = await httpClient.PostAsync(_imageGeneratorUrl, content);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<ImageGeneratorResponse>();
@@ -340,15 +379,12 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var textToSpeechUrl = Environment.GetEnvironmentVariable("TEXT_TO_SPEECH_URL")
-            ?? throw new InvalidOperationException("TEXT_TO_SPEECH_URL environment variable is not set");
-
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
 
         try
         {
-            var response = await httpClient.PostAsync(textToSpeechUrl, content);
+            var response = await httpClient.PostAsync(_textToSpeechUrl, content);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<TextToSpeechResponse>();
@@ -360,6 +396,52 @@ public class NewspaperOrchestratorFunction
                 "Ensure TEXT_TO_SPEECH_URL is set and function key is available (via Key Vault or URL parameter)",
                 ex.StatusCode);
             throw;
+        }
+    }
+
+    // Activity: Warm up the Video Generator container app
+    [Function(nameof(WarmupVideoGenerator))]
+    public async Task<bool> WarmupVideoGenerator(
+        [ActivityTrigger] FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(WarmupVideoGenerator));
+
+        if (string.IsNullOrEmpty(_videoGeneratorUrl))
+        {
+            logger.LogInformation("VIDEO_GENERATOR_URL not configured, skipping container warmup");
+            return false;
+        }
+
+        logger.LogInformation("Warming up Video Generator container at: {url}", _videoGeneratorUrl);
+
+        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
+        var httpClient = httpClientFactory!.CreateClient();
+
+        try
+        {
+            // Call the health endpoint to trigger container spin-up
+            // Use a short timeout since we don't need to wait for the response
+            httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+            var healthUrl = _videoGeneratorUrl.TrimEnd('/') + "/health";
+            var response = await httpClient.GetAsync(healthUrl);
+
+            if (response.IsSuccessStatusCode)
+            {
+                logger.LogInformation("Video Generator container warmup successful");
+                return true;
+            }
+            else
+            {
+                logger.LogWarning("Video Generator container warmup returned status: {status}", response.StatusCode);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Don't fail the orchestration if warmup fails - it's just an optimization
+            logger.LogWarning(ex, "Video Generator container warmup failed (non-critical): {message}", ex.Message);
+            return false;
         }
     }
 
@@ -375,9 +457,6 @@ public class NewspaperOrchestratorFunction
         var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
         var httpClient = httpClientFactory!.CreateClient();
 
-        var videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
-            ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
-
         var requestJson = JsonSerializer.Serialize(request);
         var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
@@ -386,7 +465,7 @@ public class NewspaperOrchestratorFunction
             // Container App may take longer for video processing, set generous timeout
             httpClient.Timeout = TimeSpan.FromMinutes(10);
 
-            var response = await httpClient.PostAsync(videoGeneratorUrl, content);
+            var response = await httpClient.PostAsync(_videoGeneratorUrl, content);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<ContainerAppVideoResponse>();
@@ -438,16 +517,10 @@ public class NewspaperOrchestratorFunction
         var logger = context.GetLogger(nameof(SaveArticleJson));
         logger.LogInformation("Saving article JSON for: {title}", request.Article.Title);
 
-        var storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
-            ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set");
-
-        var containerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
-            ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable is not set");
-
         try
         {
-            var blobServiceClient = new BlobServiceClient(storageConnectionString);
-            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            var blobServiceClient = new BlobServiceClient(_storageConnectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(_blobContainerName);
 
             var blobPath = $"{request.StorageFolder}/article.json";
             var blobClient = containerClient.GetBlobClient(blobPath);

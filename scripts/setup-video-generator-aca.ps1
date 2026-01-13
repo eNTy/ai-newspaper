@@ -8,6 +8,7 @@ $StorageAccount = "ainewspaperstorage"
 $ContainerRegistry = "ainewspapervideogen"
 $ContainerAppName = "ai-newspaper-video-generator"
 $ContainerAppEnv = "ai-newspaper-containerapp-env"
+$AppInsightsName = "ai-newspaper-app-insights"
 
 Write-Host "==================================" -ForegroundColor Green
 Write-Host "VideoGenerator - Azure Container App Setup" -ForegroundColor Green
@@ -160,6 +161,47 @@ if ([string]::IsNullOrEmpty($storageConnection)) {
 }
 Write-Host "Storage connection string retrieved successfully." -ForegroundColor Green
 
+# Create or get Application Insights
+Write-Host ""
+Write-Host "Setting up Application Insights: $AppInsightsName..." -ForegroundColor Cyan
+$appInsights = az monitor app-insights component show `
+    --app $AppInsightsName `
+    --resource-group $ResourceGroup 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating Application Insights resource..." -ForegroundColor Yellow
+    az monitor app-insights component create `
+        --app $AppInsightsName `
+        --location $Location `
+        --resource-group $ResourceGroup `
+        --application-type web `
+        --output table
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Application Insights" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Application Insights created successfully." -ForegroundColor Green
+} else {
+    Write-Host "Application Insights already exists." -ForegroundColor Green
+}
+
+# Get Application Insights connection string
+Write-Host "Retrieving Application Insights connection string..." -ForegroundColor Cyan
+$appInsightsConnectionString = az monitor app-insights component show `
+    --app $AppInsightsName `
+    --resource-group $ResourceGroup `
+    --query "connectionString" `
+    --output tsv
+
+if ([string]::IsNullOrEmpty($appInsightsConnectionString)) {
+    Write-Host "Error: Failed to retrieve Application Insights connection string" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Host "Application Insights connection string retrieved successfully." -ForegroundColor Green
+
 # Check if Container App exists
 Write-Host ""
 Write-Host "Checking if Container App exists: $ContainerAppName..." -ForegroundColor Cyan
@@ -175,6 +217,7 @@ if ($LASTEXITCODE -eq 0) {
         --set-env-vars `
             "AzureWebJobsStorage=$storageConnection" `
             "BLOB_CONTAINER_NAME=batch-runs" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=$appInsightsConnectionString" `
         --output table
 
     if ($LASTEXITCODE -ne 0) {
@@ -201,6 +244,7 @@ if ($LASTEXITCODE -eq 0) {
         --env-vars `
             "AzureWebJobsStorage=$storageConnection" `
             "BLOB_CONTAINER_NAME=batch-runs" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=$appInsightsConnectionString" `
         --cpu 1.0 `
         --memory 2.0Gi `
         --output table
@@ -238,6 +282,7 @@ Write-Host "Resources created/configured:" -ForegroundColor Cyan
 Write-Host "  - Container Registry: $ContainerRegistry" -ForegroundColor Cyan
 Write-Host "  - Container App Environment: $ContainerAppEnv" -ForegroundColor Cyan
 Write-Host "  - Container App: $ContainerAppName" -ForegroundColor Cyan
+Write-Host "  - Application Insights: $AppInsightsName" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Container Registry URL: https://$acrLoginServer" -ForegroundColor Yellow
 if (-not [string]::IsNullOrEmpty($appUrl)) {
@@ -267,8 +312,18 @@ if (-not [string]::IsNullOrEmpty($appUrl)) {
 }
 Write-Host ""
 Write-Host "4. View logs:" -ForegroundColor Yellow
+Write-Host "   # Container logs (console output)" -ForegroundColor Gray
 Write-Host "   az containerapp logs show --name $ContainerAppName --resource-group $ResourceGroup --follow"
 Write-Host ""
+Write-Host "   # Application Insights (structured logs)" -ForegroundColor Gray
+Write-Host "   Go to Azure Portal -> Application Insights -> $AppInsightsName -> Logs"
+Write-Host "   Query: traces | where cloud_RoleName == '$ContainerAppName' | order by timestamp desc"
+Write-Host ""
 Write-Host "5. Update orchestrator to use new endpoint" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Note: Application Insights is configured via environment variable." -ForegroundColor Cyan
+Write-Host "To use it, add this package to VideoGenerator:" -ForegroundColor Cyan
+Write-Host "  dotnet add package Microsoft.ApplicationInsights.AspNetCore" -ForegroundColor Gray
+Write-Host "  builder.Services.AddApplicationInsightsTelemetry();" -ForegroundColor Gray
 Write-Host ""
 Read-Host "Press Enter to exit"

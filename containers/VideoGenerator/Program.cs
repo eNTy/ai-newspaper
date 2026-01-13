@@ -7,6 +7,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services
 builder.Services.AddHttpClient();
 
+// Add Application Insights telemetry
+builder.Services.AddApplicationInsightsTelemetry();
+
 // Global semaphore to ensure only one video generation at a time
 // This prevents memory exhaustion from concurrent FFMPEG processes
 var videoGenerationSemaphore = new SemaphoreSlim(1, 1);

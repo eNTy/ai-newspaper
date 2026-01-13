@@ -25,7 +25,9 @@
       "Bash(docker build:*)",
       "Bash(Get-Process -Name \"node\")",
       "Bash(Where-Object { $_MainWindowTitle -match \"azurite\" -or $_CommandLine -match \"azurite\" })",
-      "Bash(Stop-Process -Force)"
+      "Bash(Stop-Process -Force)",
+      "Bash(az containerapp show:*)",
+      "Bash(az containerapp env show:*)"
     ]
   }
 }

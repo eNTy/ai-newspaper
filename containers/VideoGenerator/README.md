@@ -242,6 +242,66 @@ Option 3: **Set min-replicas > 0** to avoid cold starts
 az containerapp update --min-replicas 1 --max-replicas 10
 ```
 
+## Monitoring and Logging
+
+### Application Insights Integration
+
+The VideoGenerator is configured with **Application Insights** for structured logging and monitoring.
+
+**What gets tracked:**
+- All `logger.LogInformation()`, `logger.LogWarning()`, `logger.LogError()` calls
+- Request traces with duration and status
+- Dependency tracking (Azure Storage calls)
+- Exception tracking with full stack traces
+- Custom metrics and telemetry
+
+**Access logs in Azure Portal:**
+1. Navigate to **Application Insights** → `ai-newspaper-app-insights`
+2. Click **"Logs"** under Monitoring
+3. Use KQL queries to filter logs:
+
+```kusto
+// All traces from VideoGenerator
+traces
+| where cloud_RoleName == "ai-newspaper-video-generator"
+| order by timestamp desc
+| take 100
+
+// Only errors
+traces
+| where cloud_RoleName == "ai-newspaper-video-generator"
+| where severityLevel >= 3  // Error level
+| order by timestamp desc
+
+// Search for specific folder processing
+traces
+| where cloud_RoleName == "ai-newspaper-video-generator"
+| where message contains "age-8/2024-01-13/article-0"
+| order by timestamp desc
+
+// Video generation performance
+requests
+| where cloud_RoleName == "ai-newspaper-video-generator"
+| where name == "POST /api/generate"
+| summarize avg(duration), max(duration), count() by bin(timestamp, 1h)
+```
+
+**Access via CLI:**
+```bash
+# Container logs (console output)
+az containerapp logs show \
+  --name ai-newspaper-video-generator \
+  --resource-group ai-newspaper-rg \
+  --tail 100 \
+  --follow
+```
+
+### Log Levels
+
+- **Information**: Normal operations (video generation started, completed, etc.)
+- **Warning**: Non-critical issues (missing article.json, blob not found)
+- **Error**: Failures (FFMPEG errors, OOM issues, upload failures)
+
 ## Troubleshooting
 
 ### Container won't start

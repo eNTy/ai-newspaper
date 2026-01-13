@@ -42,8 +42,8 @@ jobs:
           --file Dockerfile \
           .
 
-    - name: Get Storage Connection String
-      id: storage
+    - name: Get Storage Connection String and App Insights
+      id: config
       run: |
         STORAGE_CONNECTION=$(az storage account show-connection-string \
           --name ainewspaperstorage \
@@ -53,6 +53,14 @@ jobs:
         echo "::add-mask::$STORAGE_CONNECTION"
         echo "connection_string=$STORAGE_CONNECTION" >> $GITHUB_OUTPUT
 
+        APP_INSIGHTS_CONNECTION=$(az monitor app-insights component show \
+          --app ai-newspaper-app-insights \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --query connectionString \
+          --output tsv)
+        echo "::add-mask::$APP_INSIGHTS_CONNECTION"
+        echo "app_insights_connection_string=$APP_INSIGHTS_CONNECTION" >> $GITHUB_OUTPUT
+
     - name: Update Container App
       run: |
         az containerapp update \
@@ -60,8 +68,9 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --image ${{ env.DOCKER_REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
           --set-env-vars \
-            "AzureWebJobsStorage=${{ steps.storage.outputs.connection_string }}" \
-            "BLOB_CONTAINER_NAME=batch-runs"
+            "AzureWebJobsStorage=${{ steps.config.outputs.connection_string }}" \
+            "BLOB_CONTAINER_NAME=batch-runs" \
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=${{ steps.config.outputs.app_insights_connection_string }}"
 
     - name: Get Container App URL
       run: |
