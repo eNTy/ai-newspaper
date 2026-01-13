@@ -146,6 +146,20 @@ jobs:
           sleep 10
         done
 
+        # Get VideoGenerator Container App URL
+        echo "Getting VideoGenerator Container App URL..."
+        VIDEO_GEN_FQDN=$(az containerapp show \
+          --name ai-newspaper-video-generator \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --query properties.configuration.ingress.fqdn \
+          --output tsv 2>/dev/null || echo "")
+
+        if [ -n "$VIDEO_GEN_FQDN" ]; then
+          VIDEO_GEN_URL="https://${VIDEO_GEN_FQDN}/api/generate"
+        else
+          VIDEO_GEN_URL=""
+        fi
+
         # Verify all values were retrieved
         if [ -z "$RSS_URL" ] || [ -z "$RSS_KEY" ]; then
           echo "ERROR: Failed to get RssProcessor URL or key"
@@ -163,11 +177,16 @@ jobs:
           echo "ERROR: Failed to get TextToSpeech URL or key"
           exit 1
         fi
+        if [ -z "$VIDEO_GEN_URL" ]; then
+          echo "ERROR: Failed to get VideoGenerator Container App URL"
+          exit 1
+        fi
 
         echo "RSS_PROCESSOR_URL=${RSS_URL}?code=${RSS_KEY}" >> $GITHUB_OUTPUT
         echo "ARTICLE_SIMPLIFIER_URL=${SIMPLIFIER_URL}?code=${SIMPLIFIER_KEY}" >> $GITHUB_OUTPUT
         echo "IMAGE_GENERATOR_URL=${IMAGE_URL}?code=${IMAGE_KEY}" >> $GITHUB_OUTPUT
         echo "TEXT_TO_SPEECH_URL=${TTS_URL}?code=${TTS_KEY}" >> $GITHUB_OUTPUT
+        echo "VIDEO_GENERATOR_URL=${VIDEO_GEN_URL}" >> $GITHUB_OUTPUT
 
         echo "Successfully retrieved all function URLs and keys"
 
@@ -181,6 +200,7 @@ jobs:
             "ARTICLE_SIMPLIFIER_URL=${{ steps.get-urls.outputs.ARTICLE_SIMPLIFIER_URL }}" \
             "IMAGE_GENERATOR_URL=${{ steps.get-urls.outputs.IMAGE_GENERATOR_URL }}" \
             "TEXT_TO_SPEECH_URL=${{ steps.get-urls.outputs.TEXT_TO_SPEECH_URL }}" \
+            "VIDEO_GENERATOR_URL=${{ steps.get-urls.outputs.VIDEO_GENERATOR_URL }}" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
             "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}"
 
