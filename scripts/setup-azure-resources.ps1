@@ -254,12 +254,20 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# VideoGenerator requires custom Docker container with FFMPEG
-# Custom containers are NOT supported on Consumption plan - need App Service Plan (B1)
+# VideoGenerator uses Azure Container App for scale-to-zero capability (cost-effective)
+Write-Host ""
+Write-Host "Installing Container App extension if needed..." -ForegroundColor Cyan
+$extensionInstalled = az extension list --query "[?name=='containerapp'].name" -o tsv
+if ([string]::IsNullOrEmpty($extensionInstalled)) {
+    Write-Host "Installing Container App extension..." -ForegroundColor Yellow
+    az extension add --name containerapp --upgrade
+}
+
 Write-Host ""
 Write-Host "Creating Azure Container Registry for VideoGenerator..." -ForegroundColor Cyan
 $ContainerRegistry = "ainewspapervideogen"
 $VideoGeneratorApp = "ai-newspaper-video-generator"
+$ContainerAppEnv = "ai-newspaper-containerapp-env"
 
 $acrExists = az acr check-name --name $ContainerRegistry --query nameAvailable -o tsv
 if ($acrExists -eq "true") {
@@ -281,70 +289,29 @@ if ($acrExists -eq "true") {
 }
 
 Write-Host ""
-Write-Host "Creating App Service Plan for VideoGenerator..." -ForegroundColor Cyan
-$planName = "$VideoGeneratorApp-plan"
-$planExists = az appservice plan show --name $planName --resource-group $ResourceGroup 2>&1
+Write-Host "Creating Container App Environment: $ContainerAppEnv..." -ForegroundColor Cyan
+$envExists = az containerapp env show --name $ContainerAppEnv --resource-group $ResourceGroup 2>&1
 if ($LASTEXITCODE -ne 0) {
-    az appservice plan create `
-        --name $planName `
+    az containerapp env create `
+        --name $ContainerAppEnv `
         --resource-group $ResourceGroup `
         --location $Location `
-        --is-linux `
-        --sku B1 `
         --output table
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Error: Failed to create App Service Plan" -ForegroundColor Red
+        Write-Host "Error: Failed to create Container App Environment" -ForegroundColor Red
         Read-Host "Press Enter to exit"
         exit 1
     }
-    Write-Host "App Service Plan created successfully." -ForegroundColor Green
+    Write-Host "Container App Environment created successfully." -ForegroundColor Green
 } else {
-    Write-Host "App Service Plan already exists." -ForegroundColor Yellow
-}
-
-Write-Host ""
-Write-Host "Checking if VideoGenerator Function App exists..." -ForegroundColor Cyan
-$appExists = az functionapp show --name $VideoGeneratorApp --resource-group $ResourceGroup 2>&1
-if ($LASTEXITCODE -eq 0) {
-    $currentPlan = az functionapp show --name $VideoGeneratorApp --resource-group $ResourceGroup --query "appServicePlanId" -o tsv
-    if ($currentPlan -notlike "*$planName*") {
-        Write-Host "Function App exists on wrong plan. Deleting..." -ForegroundColor Yellow
-        az functionapp delete --name $VideoGeneratorApp --resource-group $ResourceGroup
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Error: Failed to delete existing function app" -ForegroundColor Red
-            Read-Host "Press Enter to exit"
-            exit 1
-        }
-        Write-Host "Existing function app deleted." -ForegroundColor Green
-        $appExists = $null
-    } else {
-        Write-Host "Function App already exists on correct plan. Skipping creation..." -ForegroundColor Yellow
-    }
-}
-
-if ($LASTEXITCODE -ne 0 -or $null -eq $appExists) {
-    Write-Host ""
-    Write-Host "Creating Function App: $VideoGeneratorApp..." -ForegroundColor Cyan
-    az functionapp create `
-        --name $VideoGeneratorApp `
-        --resource-group $ResourceGroup `
-        --plan $planName `
-        --storage-account $StorageAccount `
-        --functions-version 4 `
-        --deployment-container-image-name "mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated8.0" `
-        --output table
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Error: Failed to create Video Generator function app" -ForegroundColor Red
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-    Write-Host "Function App created successfully." -ForegroundColor Green
+    Write-Host "Container App Environment already exists." -ForegroundColor Yellow
 }
 
 Write-Host ""
 Write-Host "Retrieving Container Registry credentials..." -ForegroundColor Cyan
 $acrUsername = az acr credential show --name $ContainerRegistry --query username -o tsv
 $acrPassword = az acr credential show --name $ContainerRegistry --query "passwords[0].value" -o tsv
+$acrLoginServer = az acr show --name $ContainerRegistry --query loginServer -o tsv
 
 if ([string]::IsNullOrEmpty($acrUsername) -or [string]::IsNullOrEmpty($acrPassword)) {
     Write-Host "Error: Failed to retrieve Container Registry credentials" -ForegroundColor Red
@@ -354,36 +321,51 @@ if ([string]::IsNullOrEmpty($acrUsername) -or [string]::IsNullOrEmpty($acrPasswo
 Write-Host "Credentials retrieved successfully." -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Configuring container registry credentials..." -ForegroundColor Cyan
-az functionapp config appsettings set `
-    --name $VideoGeneratorApp `
-    --resource-group $ResourceGroup `
-    --settings "DOCKER_REGISTRY_SERVER_URL=https://$ContainerRegistry.azurecr.io" `
-               "DOCKER_REGISTRY_SERVER_USERNAME=$acrUsername" `
-               "DOCKER_REGISTRY_SERVER_PASSWORD=$acrPassword" `
-               "WEBSITES_ENABLE_APP_SERVICE_STORAGE=false" `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to configure container registry credentials" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
+Write-Host "Checking if Container App exists: $VideoGeneratorApp..." -ForegroundColor Cyan
+$appExists = az containerapp show --name $VideoGeneratorApp --resource-group $ResourceGroup 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Container App already exists. Updating..." -ForegroundColor Yellow
+    az containerapp update `
+        --name $VideoGeneratorApp `
+        --resource-group $ResourceGroup `
+        --image "$acrLoginServer/videogenerator:latest" `
+        --set-env-vars `
+            "AzureWebJobsStorage=$storageConnection" `
+            "BLOB_CONTAINER_NAME=batch-runs" `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to update Container App" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Container App updated successfully." -ForegroundColor Green
+} else {
+    Write-Host "Creating Container App: $VideoGeneratorApp..." -ForegroundColor Cyan
+    az containerapp create `
+        --name $VideoGeneratorApp `
+        --resource-group $ResourceGroup `
+        --environment $ContainerAppEnv `
+        --image "$acrLoginServer/videogenerator:latest" `
+        --registry-server $acrLoginServer `
+        --registry-username $acrUsername `
+        --registry-password $acrPassword `
+        --target-port 8080 `
+        --ingress external `
+        --min-replicas 0 `
+        --max-replicas 10 `
+        --env-vars `
+            "AzureWebJobsStorage=$storageConnection" `
+            "BLOB_CONTAINER_NAME=batch-runs" `
+        --cpu 1.0 `
+        --memory 2.0Gi `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Container App" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Container App created successfully." -ForegroundColor Green
 }
-Write-Host "Container registry credentials configured successfully." -ForegroundColor Green
-
-Write-Host ""
-Write-Host "Setting container image..." -ForegroundColor Cyan
-az functionapp config container set `
-    --name $VideoGeneratorApp `
-    --resource-group $ResourceGroup `
-    --image "$ContainerRegistry.azurecr.io/videogenerator:latest" `
-    --registry-server "https://$ContainerRegistry.azurecr.io" `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to set container image" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-Write-Host "Container image configured successfully." -ForegroundColor Green
 
 # Create Service Principal for GitHub Actions
 Write-Host ""
@@ -416,7 +398,8 @@ Write-Host "  - $ArticleSimplifierApp (Consumption)"
 Write-Host "  - $ImageGeneratorApp (Consumption)"
 Write-Host "  - $TextToSpeechApp (Consumption)"
 Write-Host "  - $OrchestratorApp (Consumption)"
-Write-Host "  - $VideoGeneratorApp (B1 App Service Plan - Docker)"
+Write-Host "Container Apps:"
+Write-Host "  - $VideoGeneratorApp (Scale-to-Zero)"
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Yellow
 Write-Host "GitHub Secrets Configuration" -ForegroundColor Yellow
@@ -458,19 +441,19 @@ Write-Host "3. Push code to trigger deployment"
 Write-Host "4. Monitor deployment in GitHub Actions tab"
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Cyan
-Write-Host "VideoGenerator Deployment" -ForegroundColor Cyan
+Write-Host "VideoGenerator Container App" -ForegroundColor Cyan
 Write-Host "==================================" -ForegroundColor Cyan
-Write-Host "The VideoGenerator function uses a custom Docker container."
+Write-Host "The VideoGenerator uses Azure Container App with scale-to-zero."
+Write-Host ""
+Write-Host "Cost estimate: ~$5-10/month (vs $18/month with Function App B1)" -ForegroundColor Green
 Write-Host ""
 Write-Host "To deploy the container:"
 Write-Host "1. Push to master branch (triggers GitHub Actions)"
 Write-Host "   Or manually:"
-Write-Host "   cd lambdas/VideoGenerator"
+Write-Host "   cd containers/VideoGenerator"
 Write-Host "   az acr build --registry $ContainerRegistry --image videogenerator:latest --file Dockerfile ."
 Write-Host ""
-Write-Host "2. Restart function app:"
-Write-Host "   az functionapp restart --name $VideoGeneratorApp --resource-group $ResourceGroup"
-Write-Host ""
-Write-Host "Function URL: https://$VideoGeneratorApp.azurewebsites.net/api/VideoGenerator"
+Write-Host "2. Get Container App URL:"
+Write-Host "   az containerapp show --name $VideoGeneratorApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv"
 Write-Host ""
 Read-Host "Press Enter to exit"

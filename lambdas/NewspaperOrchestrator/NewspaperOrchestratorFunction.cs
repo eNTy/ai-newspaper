@@ -181,12 +181,45 @@ public class NewspaperOrchestratorFunction
         await Task.WhenAll(saveJsonTasks);
         logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
 
+        // Step 5: Generate videos for all articles in batch
+        var videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL");
+        string? videoBatchResult = null;
+
+        if (!string.IsNullOrEmpty(videoGeneratorUrl))
+        {
+            try
+            {
+                var videoRequest = new VideoGeneratorRequest
+                {
+                    StorageFolders = processedArticles.Select((_, i) => $"{request.StorageFolder}/article-{i}").ToArray()
+                };
+
+                var videoResult = await context.CallActivityAsync<VideoGeneratorResponse>(
+                    nameof(GenerateVideos),
+                    videoRequest);
+
+                videoBatchResult = $"Generated {videoResult.SuccessCount}/{videoResult.TotalCount} videos successfully";
+                logger.LogInformation(videoBatchResult);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Video generation failed, continuing without videos");
+                videoBatchResult = $"Video generation failed: {ex.Message}";
+            }
+        }
+        else
+        {
+            logger.LogInformation("VIDEO_GENERATOR_URL not configured, skipping video generation");
+            videoBatchResult = "Video generation skipped (URL not configured)";
+        }
+
         return new BatchResult
         {
             Articles = processedArticles,
             RssUrl = request.RssUrl,
             AudienceAge = request.AudienceAge,
-            ProcessedAt = DateTime.UtcNow
+            ProcessedAt = DateTime.UtcNow,
+            VideoGenerationResult = videoBatchResult
         };
     }
 
@@ -326,6 +359,72 @@ public class NewspaperOrchestratorFunction
             logger.LogError(ex, "Failed to call Text-to-Speech. Status: {status}. " +
                 "Ensure TEXT_TO_SPEECH_URL is set and function key is available (via Key Vault or URL parameter)",
                 ex.StatusCode);
+            throw;
+        }
+    }
+
+    // Activity: Generate videos for articles
+    [Function(nameof(GenerateVideos))]
+    public async Task<VideoGeneratorResponse> GenerateVideos(
+        [ActivityTrigger] VideoGeneratorRequest request,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(GenerateVideos));
+        logger.LogInformation("Generating videos for {count} articles", request.StorageFolders?.Length ?? 0);
+
+        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
+        var httpClient = httpClientFactory!.CreateClient();
+
+        var videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
+            ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
+
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+
+        try
+        {
+            // Container App may take longer for video processing, set generous timeout
+            httpClient.Timeout = TimeSpan.FromMinutes(10);
+
+            var response = await httpClient.PostAsync(videoGeneratorUrl, content);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<ContainerAppVideoResponse>();
+
+            if (result?.Results == null)
+            {
+                return new VideoGeneratorResponse { SuccessCount = 0, TotalCount = 0 };
+            }
+
+            var successCount = result.Results.Count(r => r.Success);
+            var totalCount = result.Results.Count;
+
+            logger.LogInformation("Video generation completed: {success}/{total} successful", successCount, totalCount);
+
+            // Log any failures
+            var failures = result.Results.Where(r => !r.Success).ToList();
+            foreach (var failure in failures)
+            {
+                logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
+            }
+
+            return new VideoGeneratorResponse
+            {
+                SuccessCount = successCount,
+                TotalCount = totalCount,
+                Results = result.Results
+            };
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call Video Generator. Status: {status}. " +
+                "Ensure VIDEO_GENERATOR_URL is set and Container App is accessible",
+                ex.StatusCode);
+            throw;
+        }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogError(ex, "Video generation timed out. This may indicate the Container App needs more time or resources.");
             throw;
         }
     }

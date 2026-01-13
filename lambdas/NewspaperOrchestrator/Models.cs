@@ -99,4 +99,32 @@ public class BatchResult
     public string RssUrl { get; set; } = string.Empty;
     public int AudienceAge { get; set; }
     public DateTime ProcessedAt { get; set; }
+    public string? VideoGenerationResult { get; set; }
+}
+
+// Video Generator Container App models
+public class VideoGeneratorRequest
+{
+    public string[]? StorageFolders { get; set; }
+}
+
+public class VideoGeneratorResponse
+{
+    public int SuccessCount { get; set; }
+    public int TotalCount { get; set; }
+    public List<VideoResultItem>? Results { get; set; }
+}
+
+public class VideoResultItem
+{
+    public string Folder { get; set; } = string.Empty;
+    public bool Success { get; set; }
+    public string? VideoUrl { get; set; }
+    public string? Error { get; set; }
+}
+
+// Response from Container App (matches the actual API response structure)
+public class ContainerAppVideoResponse
+{
+    public List<VideoResultItem>? Results { get; set; }
 }

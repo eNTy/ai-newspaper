@@ -1,8 +1,0 @@
-{
-  "url": "https://example.com/news/butterfly-discovery",
-  "title": "Breaking News: Scientists Discover New Species",
-  "simplifiedArticle": "Scientists have discovered a new species of butterfly in the Amazon rainforest. The butterfly has beautiful blue and green wings and lives high up in the trees. This discovery is important because it helps us learn more about nature and how to protect it.",
-  "imageUrl": "https://storage.example.com/batch-runs/test/image.png",
-  "imageDescription": "A beautiful blue and green butterfly",
-  "audioUrl": "https://storage.example.com/batch-runs/test/speech.mp3"
-}
