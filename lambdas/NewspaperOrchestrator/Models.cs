@@ -126,6 +126,9 @@ public class BatchResult
     public int AudienceAge { get; set; }
     public DateTime ProcessedAt { get; set; }
     public string? Result { get; set; }
+    public DateTime BatchStartTime { get; set; }
+    public DateTime? BatchEndTime { get; set; }
+    public TimeSpan? BatchDuration { get; set; }
 }
 
 // Video Generator Container App models

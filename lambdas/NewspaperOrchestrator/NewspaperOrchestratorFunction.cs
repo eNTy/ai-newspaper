@@ -100,12 +100,15 @@ public class NewspaperOrchestratorFunction
 
         logger.LogInformation("Processing RSS feed: {rssUrl} for age: {age}", request.RssUrl, request.AudienceAge);
 
+        var batchStartTime = context.CurrentUtcDateTime;
+
         var batchResult = new BatchResult
         {
             RssUrl = request.RssUrl,
             AudienceAge = request.AudienceAge,
             ProcessedAt = DateTime.UtcNow,
-            Success = false
+            Success = false,
+            BatchStartTime = batchStartTime
         };
 
         try
@@ -135,7 +138,9 @@ public class NewspaperOrchestratorFunction
 
             // All steps completed successfully
             batchResult.Success = true;
-            logger.LogInformation("Orchestration completed successfully");
+            batchResult.BatchEndTime = context.CurrentUtcDateTime;
+            batchResult.BatchDuration = batchResult.BatchEndTime - batchResult.BatchStartTime;
+            logger.LogInformation("Orchestration completed successfully in {duration}", batchResult.BatchDuration);
 
             // Persist the final successful result
             await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
@@ -147,7 +152,9 @@ public class NewspaperOrchestratorFunction
             // Handle step-specific failures
             batchResult.FailedStep = ex.StepName;
             batchResult.ErrorMessage = ex.Message;
-            logger.LogError(ex, "Orchestration failed at step: {step}", ex.StepName);
+            batchResult.BatchEndTime = context.CurrentUtcDateTime;
+            batchResult.BatchDuration = batchResult.BatchEndTime - batchResult.BatchStartTime;
+            logger.LogError(ex, "Orchestration failed at step: {step} after {duration}", ex.StepName, batchResult.BatchDuration);
 
             try
             {
@@ -165,7 +172,9 @@ public class NewspaperOrchestratorFunction
             // Catch-all for any unexpected errors
             batchResult.FailedStep = "UnexpectedError";
             batchResult.ErrorMessage = ex.Message;
-            logger.LogError(ex, "Orchestration failed with unexpected error");
+            batchResult.BatchEndTime = context.CurrentUtcDateTime;
+            batchResult.BatchDuration = batchResult.BatchEndTime - batchResult.BatchStartTime;
+            logger.LogError(ex, "Orchestration failed with unexpected error after {duration}", batchResult.BatchDuration);
 
             try
             {
