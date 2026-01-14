@@ -891,47 +891,58 @@ public class NewspaperOrchestratorFunction
         return response;
     }
 
-    // Timer trigger - runs daily at 5AM
-    [Function("DailyNewspaperScheduler")]
-    public async Task RunDailyScheduler(
-        [TimerTrigger("0 0 5 * * *")] TimerInfo timerInfo,
+    // Timer trigger - runs daily at 3PM UTC for age 12
+    [Function("DailyNewspaperScheduler_Age12")]
+    public async Task RunDailyScheduler_Age12(
+        [TimerTrigger("0 0 15 * * *")] TimerInfo timerInfo,
         [DurableClient] DurableTaskClient client,
         FunctionContext context)
     {
-        var logger = context.GetLogger(nameof(RunDailyScheduler));
-        logger.LogInformation("Daily newspaper scheduler triggered at: {time}", DateTime.UtcNow);
+        await RunSchedulerForAge(12, client, context);
+    }
+
+    // Timer trigger - runs daily at 6PM UTC for age 8
+    [Function("DailyNewspaperScheduler_Age8")]
+    public async Task RunDailyScheduler_Age8(
+        [TimerTrigger("0 0 18 * * *")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(8, client, context);
+    }
+
+    // Timer trigger - runs daily at 8PM UTC for age 16
+    [Function("DailyNewspaperScheduler_Age16")]
+    public async Task RunDailyScheduler_Age16(
+        [TimerTrigger("0 0 20 * * *")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(16, client, context);
+    }
+
+    // Helper method to run the scheduler for a specific age group
+    private async Task RunSchedulerForAge(int age, DurableTaskClient client, FunctionContext context)
+    {
+        var logger = context.GetLogger($"RunDailyScheduler_Age{age}");
+        logger.LogInformation("Daily newspaper scheduler triggered for age {age} at: {time}", age, DateTime.UtcNow);
 
         var rssUrl = Environment.GetEnvironmentVariable("DEFAULT_RSS_URL")
             ?? throw new InvalidOperationException("DEFAULT_RSS_URL environment variable is not set");
 
-        // Define the age groups to process
-        var ageGroups = new[] { 8, 12,16 };
-
-        // Start orchestrations for each age group in parallel
-        var orchestrationTasks = new List<Task<string>>();
-
-        foreach (var age in ageGroups)
+        var request = new OrchestratorRequest
         {
-            var request = new OrchestratorRequest
-            {
-                RssUrl = rssUrl,
-                AudienceAge = age,
-                StorageFolder = $"age-{age}/{DateTime.UtcNow:yyyy-MM-dd}"
-            }; 
+            RssUrl = rssUrl,
+            AudienceAge = age,
+            StorageFolder = $"age-{age}/{DateTime.UtcNow:yyyy-MM-dd}"
+        };
 
-            logger.LogInformation("Starting orchestration for age {age}", age);
+        logger.LogInformation("Starting orchestration for age {age}", age);
 
-            var task = client.ScheduleNewOrchestrationInstanceAsync(
-                nameof(NewspaperBatchOrchestrator),
-                request);
+        var instanceId = await client.ScheduleNewOrchestrationInstanceAsync(
+            nameof(NewspaperBatchOrchestrator),
+            request);
 
-            orchestrationTasks.Add(task);
-        }
-
-        var instanceIds = await Task.WhenAll(orchestrationTasks);
-
-        logger.LogInformation("Started {count} orchestrations. Instance IDs: {ids}",
-            instanceIds.Length,
-            string.Join(", ", instanceIds));
+        logger.LogInformation("Started orchestration for age {age}. Instance ID: {id}", age, instanceId);
     }
 }
