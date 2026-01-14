@@ -226,6 +226,7 @@ public class ArticleSimplifierFunction
 Please rewrite the following news article for {ageDescription} (age {audienceAge}).
 
 Requirements:
+- The output language MUST be always Czech!
 - Keep it to EXACTLY ONE PARAGRAPH only
 - This article will be READ ALOUD and must take NO MORE THAN 30 SECONDS to read
 - Keep it SHORT and CONCISE (approximately 60-80 words maximum)

@@ -100,231 +100,397 @@ public class NewspaperOrchestratorFunction
 
         logger.LogInformation("Processing RSS feed: {rssUrl} for age: {age}", request.RssUrl, request.AudienceAge);
 
-        // Step 0: Warm up the Video Generator container app (async, don't wait)
-        // This triggers the container to spin up as early as possible so it's ready when we need it
-        logger.LogInformation("Starting Video Generator container warmup");
-        var warmupTask = context.CallActivityAsync<bool>(nameof(WarmupVideoGenerator));
-
-        // Step 1: Fetch top 3 articles from RSS
-        var rssRequest = new RssProcessorRequest
+        var batchResult = new BatchResult
         {
-            RssUrl = request.RssUrl,
-            AudienceAge = request.AudienceAge
-        };
-
-        var topArticles = await context.CallActivityAsync<RssProcessorResponse>(
-            nameof(FetchTopArticles),
-            rssRequest);
-
-        logger.LogInformation("Found {count} articles to process", topArticles.TopArticles.Count);
-
-        // Step 2: Simplify articles in parallel
-        var simplifyTasks = new List<Task<ArticleSimplifierResponse>>();
-        foreach (var article in topArticles.TopArticles)
-        {
-            var simplifyRequest = new ArticleSimplifierRequest
-            {
-                ArticleUrl = article.Url,
-                AudienceAge = request.AudienceAge
-            };
-
-            var task = context.CallActivityAsync<ArticleSimplifierResponse>(
-                nameof(SimplifyArticle),
-                simplifyRequest);
-
-            simplifyTasks.Add(task);
-        }
-
-        var simplifiedArticles = await Task.WhenAll(simplifyTasks);
-        logger.LogInformation("Simplified {count} articles", simplifiedArticles.Length);
-
-        // Step 3: Generate images and audio in parallel
-        var imageGenTasks = new List<Task<ImageGeneratorResponse>>();
-        var audioGenTasks = new List<Task<TextToSpeechResponse>>();
-
-        for (int i = 0; i < simplifiedArticles.Length; i++)
-        {
-            var storageFolder = $"{request.StorageFolder}/article-{i}";
-
-            // Image generation task
-            var imageRequest = new ImageGeneratorRequest
-            {
-                ArticleTitle = simplifiedArticles[i].Title,
-                SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                AudienceAge = request.AudienceAge,
-                StorageFolder = storageFolder
-            };
-
-            var imageTask = context.CallActivityAsync<ImageGeneratorResponse>(
-                nameof(GenerateImage),
-                imageRequest);
-
-            imageGenTasks.Add(imageTask);
-
-            // Audio generation task
-            var audioRequest = new TextToSpeechRequest
-            {
-                ArticleTitle = simplifiedArticles[i].Title,
-                SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                StorageFolder = storageFolder
-            };
-
-            var audioTask = context.CallActivityAsync<TextToSpeechResponse>(
-                nameof(GenerateAudio),
-                audioRequest);
-
-            audioGenTasks.Add(audioTask);
-        }
-
-        var images = await Task.WhenAll(imageGenTasks);
-        var audios = await Task.WhenAll(audioGenTasks);
-        logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
-
-        // Step 4: Combine results and save as JSON
-        var processedArticles = new List<ProcessedArticle>();
-        var saveJsonTasks = new List<Task<SaveArticleJsonResponse>>();
-
-        for (int i = 0; i < topArticles.TopArticles.Count; i++)
-        {
-            var storageFolder = $"{request.StorageFolder}/article-{i}";
-
-            var article = new ProcessedArticle
-            {
-                Url = topArticles.TopArticles[i].Url,
-                Title = simplifiedArticles[i].Title,
-                SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                ImageUrl = images[i].ImageUrl,
-                ImageDescription = images[i].Description,
-                AudioUrl = audios[i].AudioUrl
-            };
-
-            processedArticles.Add(article);
-
-            // Save the complete article data as JSON
-            var saveJsonRequest = new SaveArticleJsonRequest
-            {
-                Article = article,
-                StorageFolder = storageFolder
-            };
-
-            var saveJsonTask = context.CallActivityAsync<SaveArticleJsonResponse>(
-                nameof(SaveArticleJson),
-                saveJsonRequest);
-
-            saveJsonTasks.Add(saveJsonTask);
-        }
-
-        await Task.WhenAll(saveJsonTasks);
-        logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
-
-        // Step 5: Generate videos for all articles in batch (async pattern)
-        string? videoBatchResult = null;
-
-        // Ensure the warmup task completed before generating videos
-        bool warmupSuccessful = false;
-        try
-        {
-            warmupSuccessful = await warmupTask;
-            logger.LogInformation("Container warmup completed (success: {success})", warmupSuccessful);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Container warmup task failed (non-critical)");
-        }
-
-        // Only proceed with video generation if warmup was successful
-        if (warmupSuccessful)
-        {
-            try
-            {
-                var videoRequest = new VideoGeneratorRequest
-                {
-                    StorageFolders = processedArticles.Select((_, i) => $"{request.StorageFolder}/article-{i}").ToArray()
-                };
-
-                // Trigger async video generation job
-                var jobId = await context.CallActivityAsync<string>(
-                    nameof(GenerateVideos),
-                    videoRequest);
-
-                logger.LogInformation("Video generation job started: {jobId}", jobId);
-
-                // Poll for completion with exponential backoff
-                var maxAttempts = 60; // Max 10 minutes (with increasing delays)
-                var attempt = 0;
-                VideoGenerationStatusResponse? statusResponse = null;
-
-                while (attempt < maxAttempts)
-                {
-                    // Wait before checking status (exponential backoff: 5s, 10s, 15s, 20s, max 30s)
-                    var delaySeconds = Math.Min(5 + (attempt * 5), 30);
-                    await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(delaySeconds), CancellationToken.None);
-
-                    var checkStatusRequest = new CheckVideoStatusRequest { JobId = jobId };
-                    statusResponse = await context.CallActivityAsync<VideoGenerationStatusResponse>(
-                        nameof(CheckVideoGenerationStatus),
-                        checkStatusRequest);
-
-                    logger.LogInformation("Poll attempt {attempt}: Job {jobId} status is {status} ({processed}/{total})",
-                        attempt + 1, jobId, statusResponse.Status, statusResponse.ProcessedFolders, statusResponse.TotalFolders);
-
-                    if (statusResponse.Status == "Completed" || statusResponse.Status == "Failed")
-                    {
-                        break;
-                    }
-
-                    attempt++;
-                }
-
-                if (statusResponse == null)
-                {
-                    videoBatchResult = "Video generation status unknown";
-                }
-                else if (statusResponse.Status == "Completed")
-                {
-                    var successCount = statusResponse.Results?.Count(r => r.Success) ?? 0;
-                    var totalCount = statusResponse.TotalFolders;
-                    videoBatchResult = $"Generated {successCount}/{totalCount} videos successfully";
-                    logger.LogInformation(videoBatchResult);
-
-                    // Log any failures
-                    var failures = statusResponse.Results?.Where(r => !r.Success).ToList() ?? new List<VideoResultItem>();
-                    foreach (var failure in failures)
-                    {
-                        logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
-                    }
-                }
-                else if (statusResponse.Status == "Failed")
-                {
-                    videoBatchResult = $"Video generation failed: {statusResponse.ErrorMessage}";
-                    logger.LogWarning(videoBatchResult);
-                }
-                else if (attempt >= maxAttempts)
-                {
-                    videoBatchResult = $"Video generation timed out after {maxAttempts} attempts (status: {statusResponse.Status})";
-                    logger.LogWarning(videoBatchResult);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Video generation failed, continuing without videos");
-                videoBatchResult = $"Video generation failed: {ex.Message}";
-            }
-        }
-        else
-        {
-            logger.LogInformation("Skipping video generation (warmup was not successful)");
-            videoBatchResult = "Video generation skipped (warmup unsuccessful or URL not configured)";
-        }
-
-        return new BatchResult
-        {
-            Articles = processedArticles,
             RssUrl = request.RssUrl,
             AudienceAge = request.AudienceAge,
             ProcessedAt = DateTime.UtcNow,
-            VideoGenerationResult = videoBatchResult
+            Success = false
         };
+
+        try
+        {
+            // Step 0: Warm up the Video Generator container app (async, don't wait)
+            // This triggers the container to spin up as early as possible so it's ready when we need it
+            logger.LogInformation("Starting Video Generator container warmup");
+            var warmupTask = context.CallActivityAsync<bool>(nameof(WarmupVideoGenerator));
+
+            // Step 1: Fetch top 3 articles from RSS
+            var topArticles = await FetchTopArticlesStep(context, request, logger);
+
+            // Step 2: Simplify articles in parallel
+            var simplifiedArticles = await SimplifyArticlesStep(context, topArticles, request.AudienceAge, logger);
+
+            // Step 3: Generate images and audio in parallel
+            var (images, audios) = await GenerateMediaStep(context, simplifiedArticles, request.AudienceAge, request.StorageFolder, logger);
+
+            // Step 4: Combine results and save as JSON
+            var processedArticles = await SaveArticleJsonsStep(context, topArticles, simplifiedArticles, images, audios, request.StorageFolder, logger);
+            batchResult.Articles = processedArticles;
+
+            // Step 5: Generate videos for all articles in batch (async pattern)
+            var (videoResult, videoUrls) = await GenerateVideosStep(context, processedArticles, request.StorageFolder, warmupTask, logger);
+            batchResult.Result = videoResult;
+            batchResult.VideoUrls = videoUrls;
+
+            // All steps completed successfully
+            batchResult.Success = true;
+            logger.LogInformation("Orchestration completed successfully");
+
+            // Persist the final successful result
+            await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
+
+            return batchResult;
+        }
+        catch (OrchestrationStepException ex)
+        {
+            // Handle step-specific failures
+            batchResult.FailedStep = ex.StepName;
+            batchResult.ErrorMessage = ex.Message;
+            logger.LogError(ex, "Orchestration failed at step: {step}", ex.StepName);
+
+            try
+            {
+                await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
+            }
+            catch (Exception persistEx)
+            {
+                logger.LogError(persistEx, "Failed to persist batch result after orchestration failure");
+            }
+
+            return batchResult;
+        }
+        catch (Exception ex)
+        {
+            // Catch-all for any unexpected errors
+            batchResult.FailedStep = "UnexpectedError";
+            batchResult.ErrorMessage = ex.Message;
+            logger.LogError(ex, "Orchestration failed with unexpected error");
+
+            try
+            {
+                await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
+            }
+            catch (Exception persistEx)
+            {
+                logger.LogError(persistEx, "Failed to persist batch result after orchestration failure");
+            }
+
+            return batchResult;
+        }
+    }
+
+    // Private helper methods for orchestration steps
+
+    private async Task<RssProcessorResponse> FetchTopArticlesStep(
+        TaskOrchestrationContext context,
+        OrchestratorRequest request,
+        ILogger logger)
+    {
+        try
+        {
+            var rssRequest = new RssProcessorRequest
+            {
+                RssUrl = request.RssUrl,
+                AudienceAge = request.AudienceAge
+            };
+
+            var topArticles = await context.CallActivityAsync<RssProcessorResponse>(
+                nameof(FetchTopArticles),
+                rssRequest);
+
+            logger.LogInformation("Found {count} articles to process", topArticles.TopArticles.Count);
+
+            return topArticles;
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("FetchTopArticles", ex.Message, ex);
+        }
+    }
+
+    private async Task<ArticleSimplifierResponse[]> SimplifyArticlesStep(
+        TaskOrchestrationContext context,
+        RssProcessorResponse topArticles,
+        int audienceAge,
+        ILogger logger)
+    {
+        try
+        {
+            var simplifyTasks = new List<Task<ArticleSimplifierResponse>>();
+            foreach (var article in topArticles.TopArticles)
+            {
+                var simplifyRequest = new ArticleSimplifierRequest
+                {
+                    ArticleUrl = article.Url,
+                    AudienceAge = audienceAge
+                };
+
+                var task = context.CallActivityAsync<ArticleSimplifierResponse>(
+                    nameof(SimplifyArticle),
+                    simplifyRequest);
+
+                simplifyTasks.Add(task);
+            }
+
+            var simplifiedArticles = await Task.WhenAll(simplifyTasks);
+            logger.LogInformation("Simplified {count} articles", simplifiedArticles.Length);
+
+            return simplifiedArticles;
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("SimplifyArticles", ex.Message, ex);
+        }
+    }
+
+    private async Task<(ImageGeneratorResponse[] images, TextToSpeechResponse[] audios)> GenerateMediaStep(
+        TaskOrchestrationContext context,
+        ArticleSimplifierResponse[] simplifiedArticles,
+        int audienceAge,
+        string storageFolder,
+        ILogger logger)
+    {
+        try
+        {
+            var imageGenTasks = new List<Task<ImageGeneratorResponse>>();
+            var audioGenTasks = new List<Task<TextToSpeechResponse>>();
+
+            for (int i = 0; i < simplifiedArticles.Length; i++)
+            {
+                var articleStorageFolder = $"{storageFolder}/article-{i}";
+
+                // Image generation task
+                var imageRequest = new ImageGeneratorRequest
+                {
+                    ArticleTitle = simplifiedArticles[i].Title,
+                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
+                    AudienceAge = audienceAge,
+                    StorageFolder = articleStorageFolder
+                };
+
+                var imageTask = context.CallActivityAsync<ImageGeneratorResponse>(
+                    nameof(GenerateImage),
+                    imageRequest);
+
+                imageGenTasks.Add(imageTask);
+
+                // Audio generation task
+                var audioRequest = new TextToSpeechRequest
+                {
+                    ArticleTitle = simplifiedArticles[i].Title,
+                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
+                    StorageFolder = articleStorageFolder
+                };
+
+                var audioTask = context.CallActivityAsync<TextToSpeechResponse>(
+                    nameof(GenerateAudio),
+                    audioRequest);
+
+                audioGenTasks.Add(audioTask);
+            }
+
+            var images = await Task.WhenAll(imageGenTasks);
+            var audios = await Task.WhenAll(audioGenTasks);
+            logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
+
+            return (images, audios);
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("GenerateMedia", ex.Message, ex);
+        }
+    }
+
+    private async Task<List<ProcessedArticle>> SaveArticleJsonsStep(
+        TaskOrchestrationContext context,
+        RssProcessorResponse topArticles,
+        ArticleSimplifierResponse[] simplifiedArticles,
+        ImageGeneratorResponse[] images,
+        TextToSpeechResponse[] audios,
+        string storageFolder,
+        ILogger logger)
+    {
+        try
+        {
+            var processedArticles = new List<ProcessedArticle>();
+            var saveJsonTasks = new List<Task<SaveArticleJsonResponse>>();
+
+            for (int i = 0; i < topArticles.TopArticles.Count; i++)
+            {
+                var articleStorageFolder = $"{storageFolder}/article-{i}";
+
+                var article = new ProcessedArticle
+                {
+                    Url = topArticles.TopArticles[i].Url,
+                    Title = simplifiedArticles[i].Title,
+                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
+                    ImageUrl = images[i].ImageUrl,
+                    ImageDescription = images[i].Description,
+                    AudioUrl = audios[i].AudioUrl
+                };
+
+                processedArticles.Add(article);
+
+                // Save the complete article data as JSON
+                var saveJsonRequest = new SaveArticleJsonRequest
+                {
+                    Article = article,
+                    StorageFolder = articleStorageFolder
+                };
+
+                var saveJsonTask = context.CallActivityAsync<SaveArticleJsonResponse>(
+                    nameof(SaveArticleJson),
+                    saveJsonRequest);
+
+                saveJsonTasks.Add(saveJsonTask);
+            }
+
+            await Task.WhenAll(saveJsonTasks);
+            logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
+
+            return processedArticles;
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("SaveArticleJsons", ex.Message, ex);
+        }
+    }
+
+    private async Task<(string result, List<string> videoUrls)> GenerateVideosStep(
+        TaskOrchestrationContext context,
+        List<ProcessedArticle> processedArticles,
+        string storageFolder,
+        Task<bool> warmupTask,
+        ILogger logger)
+    {
+        try
+        {
+            // Ensure the warmup task completed before generating videos
+            bool warmupSuccessful = false;
+            try
+            {
+                warmupSuccessful = await warmupTask;
+                logger.LogInformation("Container warmup completed (success: {success})", warmupSuccessful);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Container warmup task failed (non-critical)");
+            }
+
+            // Only proceed with video generation if warmup was successful
+            if (!warmupSuccessful)
+            {
+                throw new InvalidOperationException("Video generation failed: warmup unsuccessful or URL not configured");
+            }
+
+            var videoRequest = new VideoGeneratorRequest
+            {
+                StorageFolders = processedArticles.Select((_, i) => $"{storageFolder}/article-{i}").ToArray()
+            };
+
+            // Trigger async video generation job
+            var jobId = await context.CallActivityAsync<string>(
+                nameof(GenerateVideos),
+                videoRequest);
+
+            logger.LogInformation("Video generation job started: {jobId}", jobId);
+
+            // Poll for completion with exponential backoff
+            var maxAttempts = 60; // Max 10 minutes (with increasing delays)
+            var attempt = 0;
+            VideoGenerationStatusResponse? statusResponse = null;
+
+            while (attempt < maxAttempts)
+            {
+                // Wait before checking status (exponential backoff: 5s, 10s, 15s, 20s, max 30s)
+                var delaySeconds = Math.Min(5 + (attempt * 5), 30);
+                await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(delaySeconds), CancellationToken.None);
+
+                var checkStatusRequest = new CheckVideoStatusRequest { JobId = jobId };
+                statusResponse = await context.CallActivityAsync<VideoGenerationStatusResponse>(
+                    nameof(CheckVideoGenerationStatus),
+                    checkStatusRequest);
+
+                logger.LogInformation("Poll attempt {attempt}: Job {jobId} status is {status} ({processed}/{total})",
+                    attempt + 1, jobId, statusResponse.Status, statusResponse.ProcessedFolders, statusResponse.TotalFolders);
+
+                if (statusResponse.Status == "Completed" || statusResponse.Status == "Failed")
+                {
+                    break;
+                }
+
+                attempt++;
+            }
+
+            if (statusResponse == null)
+            {
+                throw new InvalidOperationException("Video generation status unknown - no response received");
+            }
+            else if (statusResponse.Status == "Completed")
+            {
+                var successCount = statusResponse.Results?.Count(r => r.Success) ?? 0;
+                var totalCount = statusResponse.TotalFolders;
+                var result = $"Generated {successCount}/{totalCount} videos successfully";
+                logger.LogInformation(result);
+
+                // Collect video URLs from successful generations
+                var videoUrls = statusResponse.Results?
+                    .Where(r => r.Success && !string.IsNullOrEmpty(r.VideoUrl))
+                    .Select(r => r.VideoUrl!)
+                    .ToList() ?? new List<string>();
+
+                // Log any failures
+                var failures = statusResponse.Results?.Where(r => !r.Success).ToList() ?? new List<VideoResultItem>();
+                foreach (var failure in failures)
+                {
+                    logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
+                }
+
+                // If all videos failed, throw exception
+                if (successCount == 0 && totalCount > 0)
+                {
+                    throw new InvalidOperationException($"All {totalCount} video generations failed");
+                }
+
+                return (result, videoUrls);
+            }
+            else if (statusResponse.Status == "Failed")
+            {
+                throw new InvalidOperationException($"Video generation failed: {statusResponse.ErrorMessage}");
+            }
+            else if (attempt >= maxAttempts)
+            {
+                throw new TimeoutException($"Video generation timed out after {maxAttempts} attempts (status: {statusResponse.Status})");
+            }
+
+            throw new InvalidOperationException("Video generation ended with unknown status");
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("GenerateVideos", ex.Message, ex);
+        }
+    }
+
+    private async Task PersistBatchResultStep(
+        TaskOrchestrationContext context,
+        BatchResult batchResult,
+        string storageFolder,
+        ILogger logger)
+    {
+        logger.LogInformation("Persisting batch result to storage");
+
+        var saveBatchResultRequest = new SaveBatchResultRequest
+        {
+            BatchResult = batchResult,
+            StorageFolder = storageFolder
+        };
+
+        await context.CallActivityAsync(
+            nameof(SaveBatchResult),
+            saveBatchResultRequest);
+
+        logger.LogInformation("Batch result persisted successfully");
     }
 
     // Activity: Fetch top articles
@@ -629,6 +795,60 @@ public class NewspaperOrchestratorFunction
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to save article JSON. Ensure AzureWebJobsStorage and BLOB_CONTAINER_NAME are set");
+            throw;
+        }
+    }
+
+    // Activity: Save batch result JSON to storage
+    [Function(nameof(SaveBatchResult))]
+    public async Task<SaveBatchResultResponse> SaveBatchResult(
+        [ActivityTrigger] SaveBatchResultRequest request,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(SaveBatchResult));
+        logger.LogInformation("Saving batch result (Success: {success}, FailedStep: {failedStep})",
+            request.BatchResult.Success, request.BatchResult.FailedStep);
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(_storageConnectionString);
+            var containerClient = blobServiceClient.GetBlobContainerClient(_blobContainerName);
+
+            var blobPath = $"{request.StorageFolder}/batch-result.json";
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            // Serialize the batch result to JSON
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            var jsonContent = JsonSerializer.Serialize(request.BatchResult, jsonOptions);
+            var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
+
+            using var stream = new MemoryStream(jsonBytes);
+
+            var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
+            {
+                HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
+                {
+                    ContentType = "application/json"
+                }
+            };
+
+            await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
+
+            var blobUrl = blobClient.Uri.ToString();
+            logger.LogInformation("Saved batch result to: {Url}", blobUrl);
+
+            return new SaveBatchResultResponse
+            {
+                JsonUrl = blobUrl
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save batch result. Ensure AzureWebJobsStorage and BLOB_CONTAINER_NAME are set");
             throw;
         }
     }

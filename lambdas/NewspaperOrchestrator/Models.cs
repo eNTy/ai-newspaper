@@ -1,5 +1,16 @@
 namespace NewspaperOrchestrator;
 
+public class OrchestrationStepException : Exception
+{
+    public string StepName { get; }
+
+    public OrchestrationStepException(string stepName, string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+        StepName = stepName;
+    }
+}
+
 public class OrchestratorRequest
 {
     public string RssUrl { get; set; } = string.Empty;
@@ -77,6 +88,17 @@ public class SaveArticleJsonResponse
     public string JsonUrl { get; set; } = string.Empty;
 }
 
+public class SaveBatchResultRequest
+{
+    public BatchResult BatchResult { get; set; } = new();
+    public string StorageFolder { get; set; } = string.Empty;
+}
+
+public class SaveBatchResultResponse
+{
+    public string JsonUrl { get; set; } = string.Empty;
+}
+
 public class ProcessedArticle
 {
     public string Url { get; set; } = string.Empty;
@@ -95,11 +117,15 @@ public class OrchestratorResponse
 
 public class BatchResult
 {
+    public bool Success { get; set; }
+    public string? FailedStep { get; set; }
+    public string? ErrorMessage { get; set; }
     public List<ProcessedArticle> Articles { get; set; } = new();
+    public List<string> VideoUrls { get; set; } = new();
     public string RssUrl { get; set; } = string.Empty;
     public int AudienceAge { get; set; }
     public DateTime ProcessedAt { get; set; }
-    public string? VideoGenerationResult { get; set; }
+    public string? Result { get; set; }
 }
 
 // Video Generator Container App models
