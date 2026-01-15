@@ -107,6 +107,7 @@ public class ProcessedArticle
     public string ImageUrl { get; set; } = string.Empty;
     public string ImageDescription { get; set; } = string.Empty;
     public string AudioUrl { get; set; } = string.Empty;
+    public string VideoUrl { get; set; } = string.Empty;
 }
 
 public class OrchestratorResponse
@@ -121,7 +122,6 @@ public class BatchResult
     public string? FailedStep { get; set; }
     public string? ErrorMessage { get; set; }
     public List<ProcessedArticle> Articles { get; set; } = new();
-    public List<string> VideoUrls { get; set; } = new();
     public string RssUrl { get; set; } = string.Empty;
     public int AudienceAge { get; set; }
     public DateTime ProcessedAt { get; set; }

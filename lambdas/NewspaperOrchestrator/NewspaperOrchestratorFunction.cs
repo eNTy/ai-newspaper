@@ -132,9 +132,17 @@ public class NewspaperOrchestratorFunction
             batchResult.Articles = processedArticles;
 
             // Step 5: Generate videos for all articles in batch (async pattern)
-            var (videoResult, videoUrls) = await GenerateVideosStep(context, processedArticles, request.StorageFolder, warmupTask, logger);
+            var (videoResult, videoUrlsByIndex) = await GenerateVideosStep(context, processedArticles, request.StorageFolder, warmupTask, logger);
             batchResult.Result = videoResult;
-            batchResult.VideoUrls = videoUrls;
+
+            // Assign video URLs to individual articles
+            foreach (var kvp in videoUrlsByIndex)
+            {
+                if (kvp.Key >= 0 && kvp.Key < processedArticles.Count)
+                {
+                    processedArticles[kvp.Key].VideoUrl = kvp.Value;
+                }
+            }
 
             // All steps completed successfully
             batchResult.Success = true;
@@ -366,7 +374,7 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    private async Task<(string result, List<string> videoUrls)> GenerateVideosStep(
+    private async Task<(string result, Dictionary<int, string> videoUrlsByIndex)> GenerateVideosStep(
         TaskOrchestrationContext context,
         List<ProcessedArticle> processedArticles,
         string storageFolder,
@@ -443,11 +451,22 @@ public class NewspaperOrchestratorFunction
                 var result = $"Generated {successCount}/{totalCount} videos successfully";
                 logger.LogInformation(result);
 
-                // Collect video URLs from successful generations
-                var videoUrls = statusResponse.Results?
-                    .Where(r => r.Success && !string.IsNullOrEmpty(r.VideoUrl))
-                    .Select(r => r.VideoUrl!)
-                    .ToList() ?? new List<string>();
+                // Map video URLs to article indices by parsing folder names
+                var videoUrlsByIndex = new Dictionary<int, string>();
+                if (statusResponse.Results != null)
+                {
+                    foreach (var videoResult in statusResponse.Results.Where(r => r.Success && !string.IsNullOrEmpty(r.VideoUrl)))
+                    {
+                        // Extract article index from folder name (format: "{storageFolder}/article-{i}")
+                        var folderParts = videoResult.Folder.Split('/');
+                        var articleFolder = folderParts.LastOrDefault() ?? "";
+                        if (articleFolder.StartsWith("article-") &&
+                            int.TryParse(articleFolder.Substring("article-".Length), out var index))
+                        {
+                            videoUrlsByIndex[index] = videoResult.VideoUrl!;
+                        }
+                    }
+                }
 
                 // Log any failures
                 var failures = statusResponse.Results?.Where(r => !r.Success).ToList() ?? new List<VideoResultItem>();
@@ -462,7 +481,7 @@ public class NewspaperOrchestratorFunction
                     throw new InvalidOperationException($"All {totalCount} video generations failed");
                 }
 
-                return (result, videoUrls);
+                return (result, videoUrlsByIndex);
             }
             else if (statusResponse.Status == "Failed")
             {
