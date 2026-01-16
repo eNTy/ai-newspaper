@@ -105,10 +105,10 @@ public class NewspaperOrchestratorFunction
         var batchResult = new BatchResult
         {
             RssUrl = request.RssUrl,
-            AudienceAge = request.AudienceAge,
-            ProcessedAt = DateTime.UtcNow,
+            AudienceAge = request.AudienceAge,            
             Success = false,
-            BatchStartTime = batchStartTime
+            BatchStartTime = batchStartTime,
+            StorageFolder = request.StorageFolder
         };
 
         try
@@ -118,31 +118,20 @@ public class NewspaperOrchestratorFunction
             logger.LogInformation("Starting Video Generator container warmup");
             var warmupTask = context.CallActivityAsync<bool>(nameof(WarmupVideoGenerator));
 
-            // Step 1: Fetch top 3 articles from RSS
-            var topArticles = await FetchTopArticlesStep(context, request, logger);
+            // Step 1: Fetch top 3 articles from RSS and initialize ProcessedArticles
+            await FetchTopArticlesStep(context, batchResult, logger);
 
             // Step 2: Simplify articles in parallel
-            var simplifiedArticles = await SimplifyArticlesStep(context, topArticles, request.AudienceAge, logger);
+            await SimplifyArticlesStep(context, batchResult, logger);
 
             // Step 3: Generate images and audio in parallel
-            var (images, audios) = await GenerateMediaStep(context, simplifiedArticles, request.AudienceAge, request.StorageFolder, logger);
+            await GenerateMediaStep(context, batchResult, logger);
 
-            // Step 4: Combine results and save as JSON
-            var processedArticles = await SaveArticleJsonsStep(context, topArticles, simplifiedArticles, images, audios, request.StorageFolder, logger);
-            batchResult.Articles = processedArticles;
+            // Step 4: Save article JSONs
+            await SaveArticleJsonsStep(context, batchResult, logger);
 
             // Step 5: Generate videos for all articles in batch (async pattern)
-            var (videoResult, videoUrlsByIndex) = await GenerateVideosStep(context, processedArticles, request.StorageFolder, warmupTask, logger);
-            batchResult.Result = videoResult;
-
-            // Assign video URLs to individual articles
-            foreach (var kvp in videoUrlsByIndex)
-            {
-                if (kvp.Key >= 0 && kvp.Key < processedArticles.Count)
-                {
-                    processedArticles[kvp.Key].VideoUrl = kvp.Value;
-                }
-            }
+            await GenerateVideosStep(context, batchResult, warmupTask, logger);
 
             // All steps completed successfully
             batchResult.Success = true;
@@ -199,17 +188,17 @@ public class NewspaperOrchestratorFunction
 
     // Private helper methods for orchestration steps
 
-    private async Task<RssProcessorResponse> FetchTopArticlesStep(
+    private async Task FetchTopArticlesStep(
         TaskOrchestrationContext context,
-        OrchestratorRequest request,
+        BatchResult batchResult,
         ILogger logger)
     {
         try
         {
             var rssRequest = new RssProcessorRequest
             {
-                RssUrl = request.RssUrl,
-                AudienceAge = request.AudienceAge
+                RssUrl = batchResult.RssUrl,
+                AudienceAge = batchResult.AudienceAge
             };
 
             var topArticles = await context.CallActivityAsync<RssProcessorResponse>(
@@ -218,7 +207,15 @@ public class NewspaperOrchestratorFunction
 
             logger.LogInformation("Found {count} articles to process", topArticles.TopArticles.Count);
 
-            return topArticles;
+            // Initialize ProcessedArticles with URLs
+            for (int i = 0; i < topArticles.TopArticles.Count; i++)
+            {
+                batchResult.Articles.Add(new ProcessedArticle
+                {
+                    Url = topArticles.TopArticles[i].Url,
+                    StorageFolder = $"{batchResult.StorageFolder}/article-{i}"
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -226,21 +223,20 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    private async Task<ArticleSimplifierResponse[]> SimplifyArticlesStep(
+    private async Task SimplifyArticlesStep(
         TaskOrchestrationContext context,
-        RssProcessorResponse topArticles,
-        int audienceAge,
+        BatchResult batchResult,
         ILogger logger)
     {
         try
         {
             var simplifyTasks = new List<Task<ArticleSimplifierResponse>>();
-            foreach (var article in topArticles.TopArticles)
+            foreach (var article in batchResult.Articles)
             {
                 var simplifyRequest = new ArticleSimplifierRequest
                 {
                     ArticleUrl = article.Url,
-                    AudienceAge = audienceAge
+                    AudienceAge = batchResult.AudienceAge
                 };
 
                 var task = context.CallActivityAsync<ArticleSimplifierResponse>(
@@ -253,7 +249,12 @@ public class NewspaperOrchestratorFunction
             var simplifiedArticles = await Task.WhenAll(simplifyTasks);
             logger.LogInformation("Simplified {count} articles", simplifiedArticles.Length);
 
-            return simplifiedArticles;
+            // Update ProcessedArticles with simplified content
+            for (int i = 0; i < simplifiedArticles.Length; i++)
+            {
+                batchResult.Articles[i].Title = simplifiedArticles[i].Title;
+                batchResult.Articles[i].SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle;
+            }
         }
         catch (Exception ex)
         {
@@ -261,11 +262,9 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    private async Task<(ImageGeneratorResponse[] images, TextToSpeechResponse[] audios)> GenerateMediaStep(
+    private async Task GenerateMediaStep(
         TaskOrchestrationContext context,
-        ArticleSimplifierResponse[] simplifiedArticles,
-        int audienceAge,
-        string storageFolder,
+        BatchResult batchResult,
         ILogger logger)
     {
         try
@@ -273,17 +272,17 @@ public class NewspaperOrchestratorFunction
             var imageGenTasks = new List<Task<ImageGeneratorResponse>>();
             var audioGenTasks = new List<Task<TextToSpeechResponse>>();
 
-            for (int i = 0; i < simplifiedArticles.Length; i++)
+            for (int i = 0; i < batchResult.Articles.Count; i++)
             {
-                var articleStorageFolder = $"{storageFolder}/article-{i}";
+                var article = batchResult.Articles[i];
 
                 // Image generation task
                 var imageRequest = new ImageGeneratorRequest
                 {
-                    ArticleTitle = simplifiedArticles[i].Title,
-                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                    AudienceAge = audienceAge,
-                    StorageFolder = articleStorageFolder
+                    ArticleTitle = article.Title,
+                    SimplifiedArticle = article.SimplifiedArticle,
+                    AudienceAge = batchResult.AudienceAge,
+                    StorageFolder = article.StorageFolder
                 };
 
                 var imageTask = context.CallActivityAsync<ImageGeneratorResponse>(
@@ -295,9 +294,9 @@ public class NewspaperOrchestratorFunction
                 // Audio generation task
                 var audioRequest = new TextToSpeechRequest
                 {
-                    ArticleTitle = simplifiedArticles[i].Title,
-                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                    StorageFolder = articleStorageFolder
+                    ArticleTitle = article.Title,
+                    SimplifiedArticle = article.SimplifiedArticle,
+                    StorageFolder = article.StorageFolder
                 };
 
                 var audioTask = context.CallActivityAsync<TextToSpeechResponse>(
@@ -311,7 +310,13 @@ public class NewspaperOrchestratorFunction
             var audios = await Task.WhenAll(audioGenTasks);
             logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
 
-            return (images, audios);
+            // Update ProcessedArticles with media URLs
+            for (int i = 0; i < batchResult.Articles.Count; i++)
+            {
+                batchResult.Articles[i].ImageUrl = images[i].ImageUrl;
+                batchResult.Articles[i].ImageDescription = images[i].Description;
+                batchResult.Articles[i].AudioUrl = audios[i].AudioUrl;
+            }
         }
         catch (Exception ex)
         {
@@ -319,41 +324,22 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    private async Task<List<ProcessedArticle>> SaveArticleJsonsStep(
+    private async Task SaveArticleJsonsStep(
         TaskOrchestrationContext context,
-        RssProcessorResponse topArticles,
-        ArticleSimplifierResponse[] simplifiedArticles,
-        ImageGeneratorResponse[] images,
-        TextToSpeechResponse[] audios,
-        string storageFolder,
+        BatchResult batchResult,
         ILogger logger)
     {
         try
         {
-            var processedArticles = new List<ProcessedArticle>();
             var saveJsonTasks = new List<Task<SaveArticleJsonResponse>>();
 
-            for (int i = 0; i < topArticles.TopArticles.Count; i++)
+            foreach (var article in batchResult.Articles)
             {
-                var articleStorageFolder = $"{storageFolder}/article-{i}";
-
-                var article = new ProcessedArticle
-                {
-                    Url = topArticles.TopArticles[i].Url,
-                    Title = simplifiedArticles[i].Title,
-                    SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle,
-                    ImageUrl = images[i].ImageUrl,
-                    ImageDescription = images[i].Description,
-                    AudioUrl = audios[i].AudioUrl
-                };
-
-                processedArticles.Add(article);
-
                 // Save the complete article data as JSON
                 var saveJsonRequest = new SaveArticleJsonRequest
                 {
                     Article = article,
-                    StorageFolder = articleStorageFolder
+                    StorageFolder = article.StorageFolder
                 };
 
                 var saveJsonTask = context.CallActivityAsync<SaveArticleJsonResponse>(
@@ -364,9 +350,7 @@ public class NewspaperOrchestratorFunction
             }
 
             await Task.WhenAll(saveJsonTasks);
-            logger.LogInformation("Saved {count} article JSON files", processedArticles.Count);
-
-            return processedArticles;
+            logger.LogInformation("Saved {count} article JSON files", batchResult.Articles.Count);
         }
         catch (Exception ex)
         {
@@ -374,10 +358,9 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    private async Task<(string result, Dictionary<int, string> videoUrlsByIndex)> GenerateVideosStep(
+    private async Task GenerateVideosStep(
         TaskOrchestrationContext context,
-        List<ProcessedArticle> processedArticles,
-        string storageFolder,
+        BatchResult batchResult,
         Task<bool> warmupTask,
         ILogger logger)
     {
@@ -403,7 +386,7 @@ public class NewspaperOrchestratorFunction
 
             var videoRequest = new VideoGeneratorRequest
             {
-                StorageFolders = processedArticles.Select((_, i) => $"{storageFolder}/article-{i}").ToArray()
+                StorageFolders = batchResult.Articles.Select(a => a.StorageFolder).ToArray()
             };
 
             // Trigger async video generation job
@@ -451,19 +434,15 @@ public class NewspaperOrchestratorFunction
                 var result = $"Generated {successCount}/{totalCount} videos successfully";
                 logger.LogInformation(result);
 
-                // Map video URLs to article indices by parsing folder names
-                var videoUrlsByIndex = new Dictionary<int, string>();
+                // Update ProcessedArticles with video URLs by matching folder paths
                 if (statusResponse.Results != null)
                 {
                     foreach (var videoResult in statusResponse.Results.Where(r => r.Success && !string.IsNullOrEmpty(r.VideoUrl)))
                     {
-                        // Extract article index from folder name (format: "{storageFolder}/article-{i}")
-                        var folderParts = videoResult.Folder.Split('/');
-                        var articleFolder = folderParts.LastOrDefault() ?? "";
-                        if (articleFolder.StartsWith("article-") &&
-                            int.TryParse(articleFolder.Substring("article-".Length), out var index))
+                        var article = batchResult.Articles.FirstOrDefault(a => a.StorageFolder == videoResult.Folder);
+                        if (article != null)
                         {
-                            videoUrlsByIndex[index] = videoResult.VideoUrl!;
+                            article.VideoUrl = videoResult.VideoUrl!;
                         }
                     }
                 }
@@ -481,7 +460,7 @@ public class NewspaperOrchestratorFunction
                     throw new InvalidOperationException($"All {totalCount} video generations failed");
                 }
 
-                return (result, videoUrlsByIndex);
+                batchResult.Result = result;
             }
             else if (statusResponse.Status == "Failed")
             {
@@ -491,8 +470,10 @@ public class NewspaperOrchestratorFunction
             {
                 throw new TimeoutException($"Video generation timed out after {maxAttempts} attempts (status: {statusResponse.Status})");
             }
-
-            throw new InvalidOperationException("Video generation ended with unknown status");
+            else
+            {
+                throw new InvalidOperationException("Video generation ended with unknown status");
+            }
         }
         catch (Exception ex)
         {

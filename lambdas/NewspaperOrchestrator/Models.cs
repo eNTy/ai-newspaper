@@ -108,6 +108,7 @@ public class ProcessedArticle
     public string ImageDescription { get; set; } = string.Empty;
     public string AudioUrl { get; set; } = string.Empty;
     public string VideoUrl { get; set; } = string.Empty;
+    public string StorageFolder { get; set; } = string.Empty;
 }
 
 public class OrchestratorResponse
@@ -124,11 +125,11 @@ public class BatchResult
     public List<ProcessedArticle> Articles { get; set; } = new();
     public string RssUrl { get; set; } = string.Empty;
     public int AudienceAge { get; set; }
-    public DateTime ProcessedAt { get; set; }
     public string? Result { get; set; }
     public DateTime BatchStartTime { get; set; }
     public DateTime? BatchEndTime { get; set; }
     public TimeSpan? BatchDuration { get; set; }
+    public string? StorageFolder { get; set; }
 }
 
 // Video Generator Container App models
