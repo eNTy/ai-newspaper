@@ -901,16 +901,6 @@ public class NewspaperOrchestratorFunction
         await RunSchedulerForAge(12, client, context);
     }
 
-    // Timer trigger - runs daily at 6PM UTC for age 8
-    [Function("DailyNewspaperScheduler_Age8")]
-    public async Task RunDailyScheduler_Age8(
-        [TimerTrigger("0 0 18 * * *")] TimerInfo timerInfo,
-        [DurableClient] DurableTaskClient client,
-        FunctionContext context)
-    {
-        await RunSchedulerForAge(8, client, context);
-    }
-
     // Timer trigger - runs daily at 8PM UTC for age 16
     [Function("DailyNewspaperScheduler_Age16")]
     public async Task RunDailyScheduler_Age16(
