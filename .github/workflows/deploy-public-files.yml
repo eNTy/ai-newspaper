@@ -1,0 +1,52 @@
+name: Deploy Public Files to Azure Blob Storage
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'public-files/**'
+  workflow_dispatch:
+
+env:
+  AZURE_STORAGE_CONTAINER: 'public-files'
+  AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
+
+jobs:
+  upload-to-blob:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Azure
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get Storage Account Name
+      id: storage
+      run: |
+        STORAGE_ACCOUNT=$(az storage account list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].name" -o tsv)
+        echo "account_name=$STORAGE_ACCOUNT" >> $GITHUB_OUTPUT
+
+    - name: Create Container if not exists
+      run: |
+        az storage container create \
+          --name ${{ env.AZURE_STORAGE_CONTAINER }} \
+          --account-name ${{ steps.storage.outputs.account_name }} \
+          --public-access blob \
+          --auth-mode login || true
+
+    - name: Upload files to Azure Blob Storage
+      run: |
+        az storage blob upload-batch \
+          --destination ${{ env.AZURE_STORAGE_CONTAINER }} \
+          --source ./public-files \
+          --account-name ${{ steps.storage.outputs.account_name }} \
+          --auth-mode login \
+          --overwrite
+
+    - name: Logout from Azure
+      run: az logout
