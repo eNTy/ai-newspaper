@@ -100,6 +100,35 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Assign Storage Blob Data Contributor role for blob uploads
+Write-Host ""
+Write-Host "Assigning Storage Blob Data Contributor role..." -ForegroundColor Cyan
+
+$StorageAccount = "ainewspaperstorage"
+$storageAccountId = az storage account show `
+    --name $StorageAccount `
+    --resource-group $ResourceGroup `
+    --query id `
+    --output tsv
+
+$spAppId = az ad sp list --display-name "ai-newspaper-github-actions" --query "[0].appId" --output tsv
+
+if (-not [string]::IsNullOrEmpty($spAppId) -and -not [string]::IsNullOrEmpty($storageAccountId)) {
+    az role assignment create `
+        --assignee $spAppId `
+        --role "Storage Blob Data Contributor" `
+        --scope $storageAccountId `
+        --output table 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Storage Blob Data Contributor role assigned successfully." -ForegroundColor Green
+    } else {
+        Write-Host "Role may already be assigned or assignment failed." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Warning: Could not assign storage role. You may need to do this manually." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Green
 Write-Host "Service Principal Created!" -ForegroundColor Green

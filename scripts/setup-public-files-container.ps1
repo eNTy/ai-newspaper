@@ -114,6 +114,36 @@ $blobEndpoint = az storage account show `
     --query "primaryEndpoints.blob" `
     --output tsv
 
+# Assign Storage Blob Data Contributor role to the GitHub Actions service principal
+Write-Host ""
+Write-Host "Assigning Storage Blob Data Contributor role to GitHub Actions service principal..." -ForegroundColor Cyan
+
+$storageAccountId = az storage account show `
+    --name $StorageAccount `
+    --resource-group $ResourceGroup `
+    --query id `
+    --output tsv
+
+$servicePrincipalName = "ai-newspaper-github-actions"
+$spAppId = az ad sp list --display-name $servicePrincipalName --query "[0].appId" --output tsv
+
+if ([string]::IsNullOrEmpty($spAppId)) {
+    Write-Host "Warning: Service principal '$servicePrincipalName' not found." -ForegroundColor Yellow
+    Write-Host "Please run setup-azure-resources.ps1 first or manually assign the role." -ForegroundColor Yellow
+} else {
+    az role assignment create `
+        --assignee $spAppId `
+        --role "Storage Blob Data Contributor" `
+        --scope $storageAccountId `
+        --output table 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Role assigned successfully." -ForegroundColor Green
+    } else {
+        Write-Host "Role may already be assigned or assignment failed." -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Green
 Write-Host "Setup Complete!" -ForegroundColor Green
