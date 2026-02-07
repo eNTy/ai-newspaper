@@ -17,9 +17,11 @@ RUN apt-get update && \
     apt-get install -y ffmpeg curl && \
     curl -L -o /tmp/c2patool.tar.gz \
       https://github.com/contentauth/c2pa-rs/releases/download/c2patool-v0.26.26/c2patool-v0.26.26-x86_64-unknown-linux-gnu.tar.gz && \
-    tar -xzf /tmp/c2patool.tar.gz -C /usr/local/bin/ && \
+    mkdir -p /tmp/c2patool && \
+    tar -xzf /tmp/c2patool.tar.gz -C /tmp/c2patool --strip-components=0 && \
+    find /tmp/c2patool -name 'c2patool' -type f -exec mv {} /usr/local/bin/c2patool \; && \
     chmod +x /usr/local/bin/c2patool && \
-    rm /tmp/c2patool.tar.gz && \
+    rm -rf /tmp/c2patool /tmp/c2patool.tar.gz && \
     apt-get purge -y curl && \
     apt-get autoremove -y && \
     apt-get clean && \
