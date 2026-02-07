@@ -326,18 +326,32 @@ public class InstagramPublishResponse
     public string? ErrorMessage { get; set; }
 }
 
-// Subset of the orchestrator's BatchResult for deserialization
+// Must match the orchestrator's BatchResult in NewspaperOrchestrator/Models.cs
 public class BatchResult
 {
     public bool Success { get; set; }
-    public int AudienceAge { get; set; }
+    public string? FailedStep { get; set; }
+    public string? ErrorMessage { get; set; }
     public List<ProcessedArticle> Articles { get; set; } = new();
+    public string RssUrl { get; set; } = string.Empty;
+    public int AudienceAge { get; set; }
+    public string? Result { get; set; }
+    public DateTime BatchStartTime { get; set; }
+    public DateTime? BatchEndTime { get; set; }
+    public TimeSpan? BatchDuration { get; set; }
+    public string? StorageFolder { get; set; }
 }
 
 public class ProcessedArticle
 {
+    public string Url { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
+    public string SimplifiedArticle { get; set; } = string.Empty;
+    public string ImageUrl { get; set; } = string.Empty;
+    public string ImageDescription { get; set; } = string.Empty;
+    public string AudioUrl { get; set; } = string.Empty;
     public string VideoUrl { get; set; } = string.Empty;
+    public string StorageFolder { get; set; } = string.Empty;
 }
 
 // Instagram Graph API response models
