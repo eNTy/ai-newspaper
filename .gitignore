@@ -52,3 +52,6 @@ __queuestorage__/
 __tablestorage__/
 AzuriteConfig
 lambdas/ImageGenerator/nul
+
+# Local scripts
+scripts-local/

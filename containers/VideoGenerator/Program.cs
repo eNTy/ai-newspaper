@@ -231,6 +231,9 @@ static async Task<string> GenerateVideoAsync(string storageFolder, string storag
         logger.LogInformation("Generating video with FFMPEG...");
         await GenerateVideoWithFFMPEGAsync(imagePath, audioPath, outputPath, audioDuration, articleTitle, logger);
 
+        logger.LogInformation("Embedding C2PA metadata...");
+        await EmbedC2paMetadataAsync(outputPath, tempDir, logger);
+
         logger.LogInformation("Uploading video to Azure Storage...");
         var videoUrl = await UploadVideoToStorageAsync(outputPath, storageFolder, containerClient, logger);
 
@@ -463,6 +466,56 @@ static async Task<string> UploadVideoToStorageAsync(string videoPath, string sto
 
     logger.LogInformation("Video uploaded successfully to: {Uri}", blobClient.Uri);
     return blobClient.Uri.ToString();
+}
+
+static async Task EmbedC2paMetadataAsync(string videoPath, string tempDir, ILogger logger)
+{
+    var signedPath = Path.Combine(tempDir, "video_signed.mp4");
+    var manifestPath = "/app/c2pa-manifest.json";
+
+    if (!File.Exists(manifestPath))
+    {
+        logger.LogWarning("C2PA manifest not found at {ManifestPath}, skipping metadata embedding", manifestPath);
+        return;
+    }
+
+    var arguments = $"\"{videoPath}\" -m \"{manifestPath}\" -o \"{signedPath}\" --force";
+
+    logger.LogInformation("Running c2patool: c2patool {Arguments}", arguments);
+
+    var startInfo = new ProcessStartInfo
+    {
+        FileName = "c2patool",
+        Arguments = arguments,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(startInfo);
+    if (process == null)
+    {
+        logger.LogWarning("Failed to start c2patool process, skipping C2PA metadata");
+        return;
+    }
+
+    var stdOutput = await process.StandardOutput.ReadToEndAsync();
+    var stdError = await process.StandardError.ReadToEndAsync();
+    await process.WaitForExitAsync();
+
+    if (process.ExitCode != 0)
+    {
+        logger.LogWarning("c2patool failed with exit code {ExitCode}: {StdError}. Uploading video without C2PA metadata.", process.ExitCode, stdError);
+        return;
+    }
+
+    // Replace original with signed version
+    File.Delete(videoPath);
+    File.Move(signedPath, videoPath);
+
+    var signedSize = new FileInfo(videoPath).Length;
+    logger.LogInformation("C2PA metadata embedded successfully. Signed file size: {Size} bytes", signedSize);
 }
 
 static string WrapText(string text, int maxCharsPerLine)

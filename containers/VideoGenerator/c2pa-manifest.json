@@ -1,0 +1,25 @@
+{
+  "assertions": [
+    {
+      "label": "c2pa.actions.v2",
+      "data": {
+        "actions": [
+          {
+            "action": "c2pa.created",
+            "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+            "softwareAgent": "AI Newspaper Video Generator"
+          }
+        ]
+      }
+    },
+    {
+      "label": "stds.iptc",
+      "data": {
+        "@context": {
+          "dc": "http://purl.org/dc/elements/1.1/"
+        },
+        "dc:creator": ["AI Newspaper"]
+      }
+    }
+  ]
+}
