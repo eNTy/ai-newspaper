@@ -137,17 +137,15 @@ public class NewspaperOrchestratorFunction
             // Step 5: Generate videos for all articles in batch (async pattern)
             await GenerateVideosStep(context, batchResult, warmupTask, logger);
 
-            // Step 6: Publish videos to Instagram as a carousel
-            await PublishToInstagramStep(context, batchResult, request.StorageFolder, logger);
-
-            // All steps completed successfully
+            // Step 6: Persist batch result to storage (must happen before Instagram publishing)
             batchResult.Success = true;
             batchResult.BatchEndTime = context.CurrentUtcDateTime;
             batchResult.BatchDuration = batchResult.BatchEndTime - batchResult.BatchStartTime;
             logger.LogInformation("Orchestration completed successfully in {duration}", batchResult.BatchDuration);
-
-            // Persist the final successful result
             await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
+
+            // Step 7: Publish videos to Instagram as a carousel
+            await PublishToInstagramStep(context, batchResult, request.StorageFolder, logger);
 
             return batchResult;
         }
