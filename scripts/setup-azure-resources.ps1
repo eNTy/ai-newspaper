@@ -7,12 +7,7 @@ $Location = "westeurope"
 $StorageAccount = "ainewspaperstorage"
 
 # Function App Names
-$RssProcessorApp = "ai-newspaper-rss-processor"
-$ArticleSimplifierApp = "ai-newspaper-article-simplifier"
-$ImageGeneratorApp = "ai-newspaper-image-generator"
-$TextToSpeechApp = "ai-newspaper-text-to-speech"
 $OrchestratorApp = "ai-newspaper-orchestrator"
-$InstagramPublisherApp = "ai-newspaper-instagram-publisher"
 
 Write-Host "=================================="
 Write-Host "AI Newspaper - Azure Setup"
@@ -159,84 +154,46 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item $policyFile
 
+# Create public-files blob container (publicly accessible for static assets)
+Write-Host ""
+Write-Host "Creating blob container: public-files with public blob access..." -ForegroundColor Cyan
+az storage container create `
+    --name "public-files" `
+    --account-name $StorageAccount `
+    --connection-string $storageConnection `
+    --public-access blob `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create public-files blob container" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Host "Container created successfully with public blob access." -ForegroundColor Green
+
+# Enable CORS for blob storage
+Write-Host ""
+Write-Host "Enabling CORS for blob storage..." -ForegroundColor Cyan
+az storage cors add `
+    --services b `
+    --methods GET HEAD OPTIONS `
+    --origins "*" `
+    --allowed-headers "*" `
+    --exposed-headers "*" `
+    --max-age 3600 `
+    --account-name $StorageAccount `
+    --connection-string $storageConnection
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Warning: Failed to configure CORS (may already exist)" -ForegroundColor Yellow
+} else {
+    Write-Host "CORS configured successfully." -ForegroundColor Green
+}
+
 # Note: For Azure Functions, we'll use Consumption plan (no need to create separate plan)
 # Azure will create it automatically with the function apps
 Write-Host ""
 Write-Host "Note: Using Consumption plan (serverless) - no separate plan creation needed" -ForegroundColor Yellow
 
-# Create Function Apps (Consumption/Serverless plan)
-Write-Host ""
-Write-Host "Creating Function App: $RssProcessorApp..." -ForegroundColor Cyan
-az functionapp create `
-    --name $RssProcessorApp `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --storage-account $StorageAccount `
-    --runtime dotnet-isolated `
-    --runtime-version 8 `
-    --functions-version 4 `
-    --os-type Linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create RSS Processor function app" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host ""
-Write-Host "Creating Function App: $ArticleSimplifierApp..." -ForegroundColor Cyan
-az functionapp create `
-    --name $ArticleSimplifierApp `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --storage-account $StorageAccount `
-    --runtime dotnet-isolated `
-    --runtime-version 8 `
-    --functions-version 4 `
-    --os-type Linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create Article Simplifier function app" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host ""
-Write-Host "Creating Function App: $ImageGeneratorApp..." -ForegroundColor Cyan
-az functionapp create `
-    --name $ImageGeneratorApp `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --storage-account $StorageAccount `
-    --runtime dotnet-isolated `
-    --runtime-version 8 `
-    --functions-version 4 `
-    --os-type Linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create Image Generator function app" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host ""
-Write-Host "Creating Function App: $TextToSpeechApp..." -ForegroundColor Cyan
-az functionapp create `
-    --name $TextToSpeechApp `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --storage-account $StorageAccount `
-    --runtime dotnet-isolated `
-    --runtime-version 8 `
-    --functions-version 4 `
-    --os-type Linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create Text-to-Speech function app" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
+# Create Function App (Consumption/Serverless plan)
 Write-Host ""
 Write-Host "Creating Function App: $OrchestratorApp..." -ForegroundColor Cyan
 az functionapp create `
@@ -251,24 +208,6 @@ az functionapp create `
     --output table
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Failed to create Orchestrator function app" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host ""
-Write-Host "Creating Function App: $InstagramPublisherApp..." -ForegroundColor Cyan
-az functionapp create `
-    --name $InstagramPublisherApp `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --storage-account $StorageAccount `
-    --runtime dotnet-isolated `
-    --runtime-version 8 `
-    --functions-version 4 `
-    --os-type Linux `
-    --output table
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to create Instagram Publisher function app" -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1
 }
@@ -339,6 +278,46 @@ if ([string]::IsNullOrEmpty($acrUsername) -or [string]::IsNullOrEmpty($acrPasswo
 }
 Write-Host "Credentials retrieved successfully." -ForegroundColor Green
 
+# Create or get Application Insights
+$AppInsightsName = "ai-newspaper-app-insights"
+Write-Host ""
+Write-Host "Setting up Application Insights: $AppInsightsName..." -ForegroundColor Cyan
+$null = az monitor app-insights component show `
+    --app $AppInsightsName `
+    --resource-group $ResourceGroup 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating Application Insights resource..." -ForegroundColor Yellow
+    az monitor app-insights component create `
+        --app $AppInsightsName `
+        --location $Location `
+        --resource-group $ResourceGroup `
+        --application-type web `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Application Insights" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Application Insights created successfully." -ForegroundColor Green
+} else {
+    Write-Host "Application Insights already exists." -ForegroundColor Green
+}
+
+Write-Host "Retrieving Application Insights connection string..." -ForegroundColor Cyan
+$appInsightsConnectionString = az monitor app-insights component show `
+    --app $AppInsightsName `
+    --resource-group $ResourceGroup `
+    --query "connectionString" `
+    --output tsv
+
+if ([string]::IsNullOrEmpty($appInsightsConnectionString)) {
+    Write-Host "Error: Failed to retrieve Application Insights connection string" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Host "Application Insights connection string retrieved successfully." -ForegroundColor Green
+
 Write-Host ""
 Write-Host "Checking if Container App exists: $VideoGeneratorApp..." -ForegroundColor Cyan
 $appExists = az containerapp show --name $VideoGeneratorApp --resource-group $ResourceGroup 2>&1
@@ -351,6 +330,7 @@ if ($LASTEXITCODE -eq 0) {
         --set-env-vars `
             "AzureWebJobsStorage=$storageConnection" `
             "BLOB_CONTAINER_NAME=batch-runs" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=$appInsightsConnectionString" `
         --output table
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error: Failed to update Container App" -ForegroundColor Red
@@ -375,6 +355,7 @@ if ($LASTEXITCODE -eq 0) {
         --env-vars `
             "AzureWebJobsStorage=$storageConnection" `
             "BLOB_CONTAINER_NAME=batch-runs" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=$appInsightsConnectionString" `
         --cpu 1.0 `
         --memory 2.0Gi `
         --output table
@@ -384,6 +365,21 @@ if ($LASTEXITCODE -eq 0) {
         exit 1
     }
     Write-Host "Container App created successfully." -ForegroundColor Green
+}
+
+# Get Container App URL
+Write-Host ""
+Write-Host "Retrieving Container App URL..." -ForegroundColor Cyan
+$appUrl = az containerapp show `
+    --name $VideoGeneratorApp `
+    --resource-group $ResourceGroup `
+    --query properties.configuration.ingress.fqdn `
+    --output tsv
+
+if ([string]::IsNullOrEmpty($appUrl)) {
+    Write-Host "Warning: Could not retrieve Container App URL" -ForegroundColor Yellow
+} else {
+    Write-Host "Container App URL: https://$appUrl" -ForegroundColor Green
 }
 
 # Create Service Principal for GitHub Actions
@@ -403,6 +399,32 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Assign Storage Blob Data Contributor role to the service principal (needed for public-files deployment)
+Write-Host ""
+Write-Host "Assigning Storage Blob Data Contributor role to service principal..." -ForegroundColor Cyan
+$storageAccountId = az storage account show `
+    --name $StorageAccount `
+    --resource-group $ResourceGroup `
+    --query id `
+    --output tsv
+
+$spAppId = az ad sp list --display-name "ai-newspaper-github-actions" --query "[0].appId" --output tsv
+
+if ([string]::IsNullOrEmpty($spAppId)) {
+    Write-Host "Warning: Service principal not found. Role assignment skipped." -ForegroundColor Yellow
+} else {
+    az role assignment create `
+        --assignee $spAppId `
+        --role "Storage Blob Data Contributor" `
+        --scope $storageAccountId `
+        --output table 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Role assigned successfully." -ForegroundColor Green
+    } else {
+        Write-Host "Role may already be assigned." -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "==================================" -ForegroundColor Green
 Write-Host "Setup Complete!" -ForegroundColor Green
@@ -410,14 +432,12 @@ Write-Host "==================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Resource Group: $ResourceGroup"
 Write-Host "Storage Account: $StorageAccount"
+Write-Host "  - batch-runs (private)"
+Write-Host "  - public-files (public blob access)"
 Write-Host "Container Registry: $ContainerRegistry"
+Write-Host "Application Insights: $AppInsightsName"
 Write-Host "Function Apps:"
-Write-Host "  - $RssProcessorApp (Consumption)"
-Write-Host "  - $ArticleSimplifierApp (Consumption)"
-Write-Host "  - $ImageGeneratorApp (Consumption)"
-Write-Host "  - $TextToSpeechApp (Consumption)"
 Write-Host "  - $OrchestratorApp (Consumption)"
-Write-Host "  - $InstagramPublisherApp (Consumption)"
 Write-Host "Container Apps:"
 Write-Host "  - $VideoGeneratorApp (Scale-to-Zero)"
 Write-Host ""
@@ -432,26 +452,20 @@ Write-Host "1. AZURE_CREDENTIALS" -ForegroundColor Cyan
 Write-Host "   Value:"
 Write-Host $spOutput
 Write-Host ""
-Write-Host "2. AZURE_FUNCTIONAPP_RSS_PROCESSOR" -ForegroundColor Cyan
-Write-Host "   Value: $RssProcessorApp"
-Write-Host ""
-Write-Host "3. AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER" -ForegroundColor Cyan
-Write-Host "   Value: $ArticleSimplifierApp"
-Write-Host ""
-Write-Host "4. AZURE_FUNCTIONAPP_IMAGE_GENERATOR" -ForegroundColor Cyan
-Write-Host "   Value: $ImageGeneratorApp"
-Write-Host ""
-Write-Host "5. AZURE_FUNCTIONAPP_TEXT_TO_SPEECH" -ForegroundColor Cyan
-Write-Host "   Value: $TextToSpeechApp"
-Write-Host ""
-Write-Host "6. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
-Write-Host "   Value: $OrchestratorApp"
-Write-Host ""
-Write-Host "7. AZURE_FUNCTIONAPP_INSTAGRAM_PUBLISHER" -ForegroundColor Cyan
-Write-Host "   Value: $InstagramPublisherApp"
-Write-Host ""
-Write-Host "8. OPENAI_API_KEY" -ForegroundColor Cyan
+Write-Host "2. OPENAI_API_KEY" -ForegroundColor Cyan
 Write-Host "   Value: <your-openai-api-key-from-platform.openai.com>"
+Write-Host ""
+Write-Host "3. DEFAULT_RSS_URL" -ForegroundColor Cyan
+Write-Host "   Value: <your-rss-feed-url>"
+Write-Host ""
+Write-Host "4. INSTAGRAM_ACCESS_TOKEN" -ForegroundColor Cyan
+Write-Host "   Value: <your-instagram-graph-api-token>"
+Write-Host ""
+Write-Host "5. INSTAGRAM_ACCOUNT_ID_12" -ForegroundColor Cyan
+Write-Host "   Value: <instagram-account-id-for-age-12>"
+Write-Host ""
+Write-Host "6. INSTAGRAM_ACCOUNT_ID_16" -ForegroundColor Cyan
+Write-Host "   Value: <instagram-account-id-for-age-16>"
 Write-Host ""
 Write-Host "Note: Get your OpenAI API key from https://platform.openai.com/api-keys" -ForegroundColor Yellow
 Write-Host ""
@@ -468,15 +482,20 @@ Write-Host "VideoGenerator Container App" -ForegroundColor Cyan
 Write-Host "==================================" -ForegroundColor Cyan
 Write-Host "The VideoGenerator uses Azure Container App with scale-to-zero."
 Write-Host ""
-Write-Host "Cost estimate: ~$5-10/month (vs $18/month with Function App B1)" -ForegroundColor Green
+if (-not [string]::IsNullOrEmpty($appUrl)) {
+    Write-Host "Container App URL: https://$appUrl" -ForegroundColor Yellow
+    Write-Host "  - Health: https://$appUrl/health" -ForegroundColor Yellow
+    Write-Host "  - Generate: POST https://$appUrl/api/generate" -ForegroundColor Yellow
+    Write-Host ""
+}
+Write-Host "To deploy the container manually:" -ForegroundColor Yellow
+Write-Host "  cd containers/VideoGenerator"
+Write-Host "  az acr build --registry $ContainerRegistry --image videogenerator:latest --file Dockerfile ."
 Write-Host ""
-Write-Host "To deploy the container:"
-Write-Host "1. Push to master branch (triggers GitHub Actions)"
-Write-Host "   Or manually:"
-Write-Host "   cd containers/VideoGenerator"
-Write-Host "   az acr build --registry $ContainerRegistry --image videogenerator:latest --file Dockerfile ."
-Write-Host ""
-Write-Host "2. Get Container App URL:"
-Write-Host "   az containerapp show --name $VideoGeneratorApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv"
+Write-Host "View logs:" -ForegroundColor Yellow
+Write-Host "  # Container logs" -ForegroundColor Gray
+Write-Host "  az containerapp logs show --name $VideoGeneratorApp --resource-group $ResourceGroup --follow"
+Write-Host "  # Application Insights" -ForegroundColor Gray
+Write-Host "  Azure Portal -> Application Insights -> $AppInsightsName -> Logs"
 Write-Host ""
 Read-Host "Press Enter to exit"
