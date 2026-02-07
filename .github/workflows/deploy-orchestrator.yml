@@ -160,6 +160,29 @@ jobs:
           VIDEO_GEN_URL=""
         fi
 
+        # Get InstagramPublisher URL and key with retry
+        echo "Getting InstagramPublisher URL and key..."
+        for i in {1..5}; do
+          INSTAGRAM_URL=$(az functionapp function show \
+            -g ${{ env.AZURE_RESOURCE_GROUP }} \
+            -n ai-newspaper-instagram-publisher \
+            --function-name InstagramPublisher \
+            --query invokeUrlTemplate -o tsv 2>/dev/null || echo "")
+
+          if [ -n "$INSTAGRAM_URL" ]; then
+            INSTAGRAM_KEY=$(az functionapp function keys list \
+              -g ${{ env.AZURE_RESOURCE_GROUP }} \
+              -n ai-newspaper-instagram-publisher \
+              --function-name InstagramPublisher \
+              --query default -o tsv 2>/dev/null || echo "")
+            if [ -n "$INSTAGRAM_KEY" ]; then
+              break
+            fi
+          fi
+          echo "Retry $i/5 for InstagramPublisher..."
+          sleep 10
+        done
+
         # Verify all values were retrieved
         if [ -z "$RSS_URL" ] || [ -z "$RSS_KEY" ]; then
           echo "ERROR: Failed to get RssProcessor URL or key"
@@ -181,12 +204,17 @@ jobs:
           echo "ERROR: Failed to get VideoGenerator Container App URL"
           exit 1
         fi
+        if [ -z "$INSTAGRAM_URL" ] || [ -z "$INSTAGRAM_KEY" ]; then
+          echo "ERROR: Failed to get InstagramPublisher URL or key"
+          exit 1
+        fi
 
         echo "RSS_PROCESSOR_URL=${RSS_URL}?code=${RSS_KEY}" >> $GITHUB_OUTPUT
         echo "ARTICLE_SIMPLIFIER_URL=${SIMPLIFIER_URL}?code=${SIMPLIFIER_KEY}" >> $GITHUB_OUTPUT
         echo "IMAGE_GENERATOR_URL=${IMAGE_URL}?code=${IMAGE_KEY}" >> $GITHUB_OUTPUT
         echo "TEXT_TO_SPEECH_URL=${TTS_URL}?code=${TTS_KEY}" >> $GITHUB_OUTPUT
         echo "VIDEO_GENERATOR_URL=${VIDEO_GEN_URL}" >> $GITHUB_OUTPUT
+        echo "INSTAGRAM_PUBLISHER_URL=${INSTAGRAM_URL}?code=${INSTAGRAM_KEY}" >> $GITHUB_OUTPUT
 
         echo "Successfully retrieved all function URLs and keys"
 
@@ -201,6 +229,7 @@ jobs:
             "IMAGE_GENERATOR_URL=${{ steps.get-urls.outputs.IMAGE_GENERATOR_URL }}" \
             "TEXT_TO_SPEECH_URL=${{ steps.get-urls.outputs.TEXT_TO_SPEECH_URL }}" \
             "VIDEO_GENERATOR_URL=${{ steps.get-urls.outputs.VIDEO_GENERATOR_URL }}" \
+            "INSTAGRAM_PUBLISHER_URL=${{ steps.get-urls.outputs.INSTAGRAM_PUBLISHER_URL }}" \
             "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
             "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}"
 

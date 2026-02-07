@@ -28,7 +28,8 @@
       "Bash(Stop-Process -Force)",
       "Bash(az containerapp show:*)",
       "Bash(az containerapp env show:*)",
-      "Bash(az containerapp update:*)"
+      "Bash(az containerapp update:*)",
+      "Bash(dotnet sln add:*)"
     ]
   }
 }

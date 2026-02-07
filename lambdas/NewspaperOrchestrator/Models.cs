@@ -179,3 +179,18 @@ public class VideoGenerationStatusResponse
     public List<VideoResultItem>? Results { get; set; }
     public string? ErrorMessage { get; set; }
 }
+
+// Instagram Publisher models
+public class InstagramPublishRequest
+{
+    public string BatchResultPath { get; set; } = string.Empty;
+    public int AudienceAge { get; set; }
+    public string StorageFolder { get; set; } = string.Empty;
+}
+
+public class InstagramPublishResponse
+{
+    public bool Success { get; set; }
+    public string? MediaId { get; set; }
+    public string? ErrorMessage { get; set; }
+}

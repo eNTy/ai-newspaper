@@ -12,6 +12,7 @@ $ArticleSimplifierApp = "ai-newspaper-article-simplifier"
 $ImageGeneratorApp = "ai-newspaper-image-generator"
 $TextToSpeechApp = "ai-newspaper-text-to-speech"
 $OrchestratorApp = "ai-newspaper-orchestrator"
+$InstagramPublisherApp = "ai-newspaper-instagram-publisher"
 
 Write-Host "=================================="
 Write-Host "AI Newspaper - Azure Setup"
@@ -254,6 +255,24 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Write-Host ""
+Write-Host "Creating Function App: $InstagramPublisherApp..." -ForegroundColor Cyan
+az functionapp create `
+    --name $InstagramPublisherApp `
+    --resource-group $ResourceGroup `
+    --consumption-plan-location $Location `
+    --storage-account $StorageAccount `
+    --runtime dotnet-isolated `
+    --runtime-version 8 `
+    --functions-version 4 `
+    --os-type Linux `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Failed to create Instagram Publisher function app" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
 # VideoGenerator uses Azure Container App for scale-to-zero capability (cost-effective)
 Write-Host ""
 Write-Host "Installing Container App extension if needed..." -ForegroundColor Cyan
@@ -398,6 +417,7 @@ Write-Host "  - $ArticleSimplifierApp (Consumption)"
 Write-Host "  - $ImageGeneratorApp (Consumption)"
 Write-Host "  - $TextToSpeechApp (Consumption)"
 Write-Host "  - $OrchestratorApp (Consumption)"
+Write-Host "  - $InstagramPublisherApp (Consumption)"
 Write-Host "Container Apps:"
 Write-Host "  - $VideoGeneratorApp (Scale-to-Zero)"
 Write-Host ""
@@ -427,7 +447,10 @@ Write-Host ""
 Write-Host "6. AZURE_FUNCTIONAPP_ORCHESTRATOR" -ForegroundColor Cyan
 Write-Host "   Value: $OrchestratorApp"
 Write-Host ""
-Write-Host "7. OPENAI_API_KEY" -ForegroundColor Cyan
+Write-Host "7. AZURE_FUNCTIONAPP_INSTAGRAM_PUBLISHER" -ForegroundColor Cyan
+Write-Host "   Value: $InstagramPublisherApp"
+Write-Host ""
+Write-Host "8. OPENAI_API_KEY" -ForegroundColor Cyan
 Write-Host "   Value: <your-openai-api-key-from-platform.openai.com>"
 Write-Host ""
 Write-Host "Note: Get your OpenAI API key from https://platform.openai.com/api-keys" -ForegroundColor Yellow

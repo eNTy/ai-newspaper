@@ -21,6 +21,7 @@ public class NewspaperOrchestratorFunction
     private readonly string _videoGeneratorUrl;
     private readonly string _storageConnectionString;
     private readonly string _blobContainerName;
+    private readonly string _instagramPublisherUrl;
 
     public NewspaperOrchestratorFunction(ILogger<NewspaperOrchestratorFunction> logger)
     {
@@ -47,7 +48,10 @@ public class NewspaperOrchestratorFunction
 
         _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
             ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
-       
+
+        _instagramPublisherUrl = Environment.GetEnvironmentVariable("INSTAGRAM_PUBLISHER_URL")
+            ?? throw new InvalidOperationException("INSTAGRAM_PUBLISHER_URL environment variable is not set");
+
         _logger.LogInformation("NewspaperOrchestratorFunction initialized with all required configuration");
     }
 
@@ -132,6 +136,9 @@ public class NewspaperOrchestratorFunction
 
             // Step 5: Generate videos for all articles in batch (async pattern)
             await GenerateVideosStep(context, batchResult, warmupTask, logger);
+
+            // Step 6: Publish videos to Instagram as a carousel
+            await PublishToInstagramStep(context, batchResult, request.StorageFolder, logger);
 
             // All steps completed successfully
             batchResult.Success = true;
@@ -481,6 +488,50 @@ public class NewspaperOrchestratorFunction
         }
     }
 
+    private async Task PublishToInstagramStep(
+        TaskOrchestrationContext context,
+        BatchResult batchResult,
+        string storageFolder,
+        ILogger logger)
+    {
+        try
+        {
+            // Only publish if we have articles with video URLs
+            var videosAvailable = batchResult.Articles.Any(a => !string.IsNullOrEmpty(a.VideoUrl));
+            if (!videosAvailable)
+            {
+                logger.LogWarning("Skipping Instagram publishing: no videos available");
+                return;
+            }
+
+            logger.LogInformation("Publishing videos to Instagram");
+
+            var publishRequest = new InstagramPublishRequest
+            {
+                BatchResultPath = $"{storageFolder}/batch-result.json",
+                AudienceAge = batchResult.AudienceAge,
+                StorageFolder = storageFolder
+            };
+
+            var publishResponse = await context.CallActivityAsync<InstagramPublishResponse>(
+                nameof(PublishToInstagram),
+                publishRequest);
+
+            if (publishResponse.Success)
+            {
+                logger.LogInformation("Instagram carousel published successfully. Media ID: {mediaId}", publishResponse.MediaId);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Instagram publishing failed: {publishResponse.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new OrchestrationStepException("PublishToInstagram", ex.Message, ex);
+        }
+    }
+
     private async Task PersistBatchResultStep(
         TaskOrchestrationContext context,
         BatchResult batchResult,
@@ -750,6 +801,40 @@ public class NewspaperOrchestratorFunction
         catch (HttpRequestException ex)
         {
             logger.LogError(ex, "Failed to check video generation status. Status: {status}",
+                ex.StatusCode);
+            throw;
+        }
+    }
+
+    // Activity: Publish videos to Instagram
+    [Function(nameof(PublishToInstagram))]
+    public async Task<InstagramPublishResponse> PublishToInstagram(
+        [ActivityTrigger] InstagramPublishRequest request,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(PublishToInstagram));
+        logger.LogInformation("Publishing to Instagram for batch: {path}", request.BatchResultPath);
+
+        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
+        var httpClient = httpClientFactory!.CreateClient();
+
+        var requestJson = JsonSerializer.Serialize(request);
+        var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+
+        try
+        {
+            httpClient.Timeout = TimeSpan.FromMinutes(20);
+
+            var response = await httpClient.PostAsync(_instagramPublisherUrl, content);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<InstagramPublishResponse>();
+            return result ?? new InstagramPublishResponse { Success = false, ErrorMessage = "Empty response from Instagram Publisher" };
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Failed to call Instagram Publisher. Status: {status}. " +
+                "Ensure INSTAGRAM_PUBLISHER_URL is set and function key is available",
                 ex.StatusCode);
             throw;
         }

@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -17,6 +17,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TextToSpeech", "lambdas\TextToSpeech\TextToSpeech.csproj", "{A1B2C3D4-5678-90AB-CDEF-444444444444}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VideoGenerator", "containers\VideoGenerator\VideoGenerator.csproj", "{A1B2C3D4-5678-90AB-CDEF-666666666666}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InstagramPublisher", "lambdas\InstagramPublisher\InstagramPublisher.csproj", "{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -48,6 +50,10 @@ Global
 		{A1B2C3D4-5678-90AB-CDEF-666666666666}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-5678-90AB-CDEF-666666666666}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-5678-90AB-CDEF-666666666666}.Release|Any CPU.Build.0 = Release|Any CPU
+		{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -59,6 +65,7 @@ Global
 		{A1B2C3D4-5678-90AB-CDEF-333333333333} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
 		{A1B2C3D4-5678-90AB-CDEF-444444444444} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
 		{A1B2C3D4-5678-90AB-CDEF-666666666666} = {C0FFEEC0-FFEE-C0FF-EEC0-FFEEC0FFEEC0}
+		{46F1FB83-6136-4A1C-9F82-DCEBFEADE65A} = {F6B1647C-7349-B0FF-4920-3CCD5A62CE69}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3CD65DC6-D280-48C3-ACE9-1EE15EA2EFDC}
