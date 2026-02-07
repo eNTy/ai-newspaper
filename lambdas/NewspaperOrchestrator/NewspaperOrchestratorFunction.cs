@@ -14,45 +14,23 @@ namespace NewspaperOrchestrator;
 public class NewspaperOrchestratorFunction
 {
     private readonly ILogger<NewspaperOrchestratorFunction> _logger;
-    private readonly string _rssProcessorUrl;
-    private readonly string _articleSimplifierUrl;
-    private readonly string _imageGeneratorUrl;
-    private readonly string _textToSpeechUrl;
     private readonly string _videoGeneratorUrl;
-    private readonly string _storageConnectionString;
-    private readonly string _blobContainerName;
-    private readonly string _instagramPublisherUrl;
+    private readonly BlobServiceClient _blobServiceClient;
+    private readonly BlobContainerConfig _containerConfig;
 
-    public NewspaperOrchestratorFunction(ILogger<NewspaperOrchestratorFunction> logger)
+    public NewspaperOrchestratorFunction(
+        ILogger<NewspaperOrchestratorFunction> logger,
+        BlobServiceClient blobServiceClient,
+        BlobContainerConfig containerConfig)
     {
         _logger = logger;
-
-        // Fetch all required configuration at startup - fail fast if missing
-        _rssProcessorUrl = Environment.GetEnvironmentVariable("RSS_PROCESSOR_URL")
-            ?? throw new InvalidOperationException("RSS_PROCESSOR_URL environment variable is not set");
-
-        _articleSimplifierUrl = Environment.GetEnvironmentVariable("ARTICLE_SIMPLIFIER_URL")
-            ?? throw new InvalidOperationException("ARTICLE_SIMPLIFIER_URL environment variable is not set");
-
-        _imageGeneratorUrl = Environment.GetEnvironmentVariable("IMAGE_GENERATOR_URL")
-            ?? throw new InvalidOperationException("IMAGE_GENERATOR_URL environment variable is not set");
-
-        _textToSpeechUrl = Environment.GetEnvironmentVariable("TEXT_TO_SPEECH_URL")
-            ?? throw new InvalidOperationException("TEXT_TO_SPEECH_URL environment variable is not set");
-
-        _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
-            ?? throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set");
-
-        _blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINER_NAME")
-            ?? throw new InvalidOperationException("BLOB_CONTAINER_NAME environment variable is not set");
+        _blobServiceClient = blobServiceClient;
+        _containerConfig = containerConfig;
 
         _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
             ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
 
-        _instagramPublisherUrl = Environment.GetEnvironmentVariable("INSTAGRAM_PUBLISHER_URL")
-            ?? throw new InvalidOperationException("INSTAGRAM_PUBLISHER_URL environment variable is not set");
-
-        _logger.LogInformation("NewspaperOrchestratorFunction initialized with all required configuration");
+        _logger.LogInformation("NewspaperOrchestratorFunction initialized");
     }
 
     // HTTP Trigger to start the orchestration
@@ -109,7 +87,7 @@ public class NewspaperOrchestratorFunction
         var batchResult = new BatchResult
         {
             RssUrl = request.RssUrl,
-            AudienceAge = request.AudienceAge,            
+            AudienceAge = request.AudienceAge,
             Success = false,
             BatchStartTime = batchStartTime,
             StorageFolder = request.StorageFolder
@@ -118,11 +96,10 @@ public class NewspaperOrchestratorFunction
         try
         {
             // Step 0: Warm up the Video Generator container app (async, don't wait)
-            // This triggers the container to spin up as early as possible so it's ready when we need it
             logger.LogInformation("Starting Video Generator container warmup");
             var warmupTask = context.CallActivityAsync<bool>(nameof(WarmupVideoGenerator));
 
-            // Step 1: Fetch top 3 articles from RSS and initialize ProcessedArticles
+            // Step 1: Fetch top articles from RSS
             await FetchTopArticlesStep(context, batchResult, logger);
 
             // Step 2: Simplify articles in parallel
@@ -134,24 +111,23 @@ public class NewspaperOrchestratorFunction
             // Step 4: Save article JSONs
             await SaveArticleJsonsStep(context, batchResult, logger);
 
-            // Step 5: Generate videos for all articles in batch (async pattern)
+            // Step 5: Generate videos (async pattern with polling)
             await GenerateVideosStep(context, batchResult, warmupTask, logger);
 
-            // Step 6: Persist batch result to storage (must happen before Instagram publishing)
+            // Step 6: Publish videos to Instagram as a carousel
+            await PublishToInstagramStep(context, batchResult, logger);
+
+            // Step 7: Persist batch result to storage
             batchResult.Success = true;
             batchResult.BatchEndTime = context.CurrentUtcDateTime;
             batchResult.BatchDuration = batchResult.BatchEndTime - batchResult.BatchStartTime;
             logger.LogInformation("Orchestration completed successfully in {duration}", batchResult.BatchDuration);
             await PersistBatchResultStep(context, batchResult, request.StorageFolder, logger);
 
-            // Step 7: Publish videos to Instagram as a carousel
-            await PublishToInstagramStep(context, batchResult, request.StorageFolder, logger);
-
             return batchResult;
         }
         catch (OrchestrationStepException ex)
         {
-            // Handle step-specific failures
             batchResult.FailedStep = ex.StepName;
             batchResult.ErrorMessage = ex.Message;
             batchResult.BatchEndTime = context.CurrentUtcDateTime;
@@ -171,7 +147,6 @@ public class NewspaperOrchestratorFunction
         }
         catch (Exception ex)
         {
-            // Catch-all for any unexpected errors
             batchResult.FailedStep = "UnexpectedError";
             batchResult.ErrorMessage = ex.Message;
             batchResult.BatchEndTime = context.CurrentUtcDateTime;
@@ -191,7 +166,7 @@ public class NewspaperOrchestratorFunction
         }
     }
 
-    // Private helper methods for orchestration steps
+    // --- Orchestration step helpers ---
 
     private async Task FetchTopArticlesStep(
         TaskOrchestrationContext context,
@@ -200,27 +175,12 @@ public class NewspaperOrchestratorFunction
     {
         try
         {
-            var rssRequest = new RssProcessorRequest
-            {
-                RssUrl = batchResult.RssUrl,
-                AudienceAge = batchResult.AudienceAge
-            };
+            var articles = await context.CallActivityAsync<List<ProcessedArticle>>(
+                "FetchTopArticles",
+                batchResult);
 
-            var topArticles = await context.CallActivityAsync<RssProcessorResponse>(
-                nameof(FetchTopArticles),
-                rssRequest);
-
-            logger.LogInformation("Found {count} articles to process", topArticles.TopArticles.Count);
-
-            // Initialize ProcessedArticles with URLs
-            for (int i = 0; i < topArticles.TopArticles.Count; i++)
-            {
-                batchResult.Articles.Add(new ProcessedArticle
-                {
-                    Url = topArticles.TopArticles[i].Url,
-                    StorageFolder = $"{batchResult.StorageFolder}/article-{i}"
-                });
-            }
+            batchResult.Articles = articles;
+            logger.LogInformation("Found {count} articles to process", articles.Count);
         }
         catch (Exception ex)
         {
@@ -235,30 +195,24 @@ public class NewspaperOrchestratorFunction
     {
         try
         {
-            var simplifyTasks = new List<Task<ArticleSimplifierResponse>>();
+            var simplifyTasks = new List<Task<ProcessedArticle>>();
             foreach (var article in batchResult.Articles)
             {
-                var simplifyRequest = new ArticleSimplifierRequest
+                var input = new ArticleActivityInput
                 {
-                    ArticleUrl = article.Url,
+                    Article = article,
                     AudienceAge = batchResult.AudienceAge
                 };
 
-                var task = context.CallActivityAsync<ArticleSimplifierResponse>(
-                    nameof(SimplifyArticle),
-                    simplifyRequest);
-
-                simplifyTasks.Add(task);
+                simplifyTasks.Add(context.CallActivityAsync<ProcessedArticle>("SimplifyArticle", input));
             }
 
-            var simplifiedArticles = await Task.WhenAll(simplifyTasks);
-            logger.LogInformation("Simplified {count} articles", simplifiedArticles.Length);
+            var results = await Task.WhenAll(simplifyTasks);
+            logger.LogInformation("Simplified {count} articles", results.Length);
 
-            // Update ProcessedArticles with simplified content
-            for (int i = 0; i < simplifiedArticles.Length; i++)
+            for (int i = 0; i < results.Length; i++)
             {
-                batchResult.Articles[i].Title = simplifiedArticles[i].Title;
-                batchResult.Articles[i].SimplifiedArticle = simplifiedArticles[i].SimplifiedArticle;
+                batchResult.Articles[i] = results[i];
             }
         }
         catch (Exception ex)
@@ -274,52 +228,29 @@ public class NewspaperOrchestratorFunction
     {
         try
         {
-            var imageGenTasks = new List<Task<ImageGeneratorResponse>>();
-            var audioGenTasks = new List<Task<TextToSpeechResponse>>();
+            var imageTasks = new List<Task<ProcessedArticle>>();
+            var audioTasks = new List<Task<ProcessedArticle>>();
 
             for (int i = 0; i < batchResult.Articles.Count; i++)
             {
-                var article = batchResult.Articles[i];
-
-                // Image generation task
-                var imageRequest = new ImageGeneratorRequest
+                var input = new ArticleActivityInput
                 {
-                    ArticleTitle = article.Title,
-                    SimplifiedArticle = article.SimplifiedArticle,
-                    AudienceAge = batchResult.AudienceAge,
-                    StorageFolder = article.StorageFolder
+                    Article = batchResult.Articles[i],
+                    AudienceAge = batchResult.AudienceAge
                 };
 
-                var imageTask = context.CallActivityAsync<ImageGeneratorResponse>(
-                    nameof(GenerateImage),
-                    imageRequest);
-
-                imageGenTasks.Add(imageTask);
-
-                // Audio generation task
-                var audioRequest = new TextToSpeechRequest
-                {
-                    ArticleTitle = article.Title,
-                    SimplifiedArticle = article.SimplifiedArticle,
-                    StorageFolder = article.StorageFolder
-                };
-
-                var audioTask = context.CallActivityAsync<TextToSpeechResponse>(
-                    nameof(GenerateAudio),
-                    audioRequest);
-
-                audioGenTasks.Add(audioTask);
+                imageTasks.Add(context.CallActivityAsync<ProcessedArticle>("GenerateImage", input));
+                audioTasks.Add(context.CallActivityAsync<ProcessedArticle>("GenerateAudio", input));
             }
 
-            var images = await Task.WhenAll(imageGenTasks);
-            var audios = await Task.WhenAll(audioGenTasks);
-            logger.LogInformation("Generated {count} images and {count} audio files", images.Length, audios.Length);
+            var images = await Task.WhenAll(imageTasks);
+            var audios = await Task.WhenAll(audioTasks);
+            logger.LogInformation("Generated {imageCount} images and {audioCount} audio files", images.Length, audios.Length);
 
-            // Update ProcessedArticles with media URLs
             for (int i = 0; i < batchResult.Articles.Count; i++)
             {
                 batchResult.Articles[i].ImageUrl = images[i].ImageUrl;
-                batchResult.Articles[i].ImageDescription = images[i].Description;
+                batchResult.Articles[i].ImageDescription = images[i].ImageDescription;
                 batchResult.Articles[i].AudioUrl = audios[i].AudioUrl;
             }
         }
@@ -336,25 +267,11 @@ public class NewspaperOrchestratorFunction
     {
         try
         {
-            var saveJsonTasks = new List<Task<SaveArticleJsonResponse>>();
+            var saveTasks = batchResult.Articles
+                .Select(article => context.CallActivityAsync<string>(nameof(SaveArticleJson), article))
+                .ToList();
 
-            foreach (var article in batchResult.Articles)
-            {
-                // Save the complete article data as JSON
-                var saveJsonRequest = new SaveArticleJsonRequest
-                {
-                    Article = article,
-                    StorageFolder = article.StorageFolder
-                };
-
-                var saveJsonTask = context.CallActivityAsync<SaveArticleJsonResponse>(
-                    nameof(SaveArticleJson),
-                    saveJsonRequest);
-
-                saveJsonTasks.Add(saveJsonTask);
-            }
-
-            await Task.WhenAll(saveJsonTasks);
+            await Task.WhenAll(saveTasks);
             logger.LogInformation("Saved {count} article JSON files", batchResult.Articles.Count);
         }
         catch (Exception ex)
@@ -371,7 +288,7 @@ public class NewspaperOrchestratorFunction
     {
         try
         {
-            // Ensure the warmup task completed before generating videos
+            // Ensure warmup completed
             bool warmupSuccessful = false;
             try
             {
@@ -383,7 +300,6 @@ public class NewspaperOrchestratorFunction
                 logger.LogWarning(ex, "Container warmup task failed (non-critical)");
             }
 
-            // Only proceed with video generation if warmup was successful
             if (!warmupSuccessful)
             {
                 throw new InvalidOperationException("Video generation failed: warmup unsuccessful or URL not configured");
@@ -402,13 +318,12 @@ public class NewspaperOrchestratorFunction
             logger.LogInformation("Video generation job started: {jobId}", jobId);
 
             // Poll for completion with exponential backoff
-            var maxAttempts = 60; // Max 10 minutes (with increasing delays)
+            var maxAttempts = 60;
             var attempt = 0;
             VideoGenerationStatusResponse? statusResponse = null;
 
             while (attempt < maxAttempts)
             {
-                // Wait before checking status (exponential backoff: 5s, 10s, 15s, 20s, max 30s)
                 var delaySeconds = Math.Min(5 + (attempt * 5), 30);
                 await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(delaySeconds), CancellationToken.None);
 
@@ -439,7 +354,6 @@ public class NewspaperOrchestratorFunction
                 var result = $"Generated {successCount}/{totalCount} videos successfully";
                 logger.LogInformation(result);
 
-                // Update ProcessedArticles with video URLs by matching folder paths
                 if (statusResponse.Results != null)
                 {
                     foreach (var videoResult in statusResponse.Results.Where(r => r.Success && !string.IsNullOrEmpty(r.VideoUrl)))
@@ -452,14 +366,12 @@ public class NewspaperOrchestratorFunction
                     }
                 }
 
-                // Log any failures
                 var failures = statusResponse.Results?.Where(r => !r.Success).ToList() ?? new List<VideoResultItem>();
                 foreach (var failure in failures)
                 {
                     logger.LogWarning("Video generation failed for folder {folder}: {error}", failure.Folder, failure.Error);
                 }
 
-                // If all videos failed, throw exception
                 if (successCount == 0 && totalCount > 0)
                 {
                     throw new InvalidOperationException($"All {totalCount} video generations failed");
@@ -489,12 +401,10 @@ public class NewspaperOrchestratorFunction
     private async Task PublishToInstagramStep(
         TaskOrchestrationContext context,
         BatchResult batchResult,
-        string storageFolder,
         ILogger logger)
     {
         try
         {
-            // Only publish if we have articles with video URLs
             var videosAvailable = batchResult.Articles.Any(a => !string.IsNullOrEmpty(a.VideoUrl));
             if (!videosAvailable)
             {
@@ -504,25 +414,11 @@ public class NewspaperOrchestratorFunction
 
             logger.LogInformation("Publishing videos to Instagram");
 
-            var publishRequest = new InstagramPublishRequest
-            {
-                BatchResultPath = $"{storageFolder}/batch-result.json",
-                AudienceAge = batchResult.AudienceAge,
-                StorageFolder = storageFolder
-            };
-
-            var publishResponse = await context.CallActivityAsync<InstagramPublishResponse>(
-                nameof(PublishToInstagram),
-                publishRequest);
-
-            if (publishResponse.Success)
-            {
-                logger.LogInformation("Instagram carousel published successfully. Media ID: {mediaId}", publishResponse.MediaId);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Instagram publishing failed: {publishResponse.ErrorMessage}");
-            }
+            var publishResult = await context.CallActivityAsync<InstagramPublishResult>("PublishToInstagram", batchResult);
+            batchResult.InstagramMediaId = publishResult.MediaId;
+            batchResult.InstagramUrl = publishResult.Permalink;
+            logger.LogInformation("Instagram carousel published successfully. Media ID: {mediaId}, URL: {url}",
+                publishResult.MediaId, publishResult.Permalink);
         }
         catch (Exception ex)
         {
@@ -538,148 +434,13 @@ public class NewspaperOrchestratorFunction
     {
         logger.LogInformation("Persisting batch result to storage");
 
-        var saveBatchResultRequest = new SaveBatchResultRequest
-        {
-            BatchResult = batchResult,
-            StorageFolder = storageFolder
-        };
-
-        await context.CallActivityAsync(
-            nameof(SaveBatchResult),
-            saveBatchResultRequest);
+        await context.CallActivityAsync(nameof(SaveBatchResult), batchResult);
 
         logger.LogInformation("Batch result persisted successfully");
     }
 
-    // Activity: Fetch top articles
-    [Function(nameof(FetchTopArticles))]
-    public async Task<RssProcessorResponse> FetchTopArticles(
-        [ActivityTrigger] RssProcessorRequest request,
-        FunctionContext context)
-    {
-        var logger = context.GetLogger(nameof(FetchTopArticles));
-        logger.LogInformation("Fetching top articles from: {url} for age: {age}", request.RssUrl, request.AudienceAge);
+    // --- Activity: Video Generator (still HTTP to Container App) ---
 
-        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
-        var httpClient = httpClientFactory!.CreateClient();
-
-        var requestJson = JsonSerializer.Serialize(request);
-        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-
-        try
-        {
-            var response = await httpClient.PostAsync(_rssProcessorUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<RssProcessorResponse>();
-            return result ?? new RssProcessorResponse();
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Failed to call RSS Processor. Status: {status}. " +
-                "Ensure RSS_PROCESSOR_URL is set and function key is available (via Key Vault or URL parameter)",
-                ex.StatusCode);
-            throw;
-        }
-    }
-
-    // Activity: Simplify article
-    [Function(nameof(SimplifyArticle))]
-    public async Task<ArticleSimplifierResponse> SimplifyArticle(
-        [ActivityTrigger] ArticleSimplifierRequest request,
-        FunctionContext context)
-    {
-        var logger = context.GetLogger(nameof(SimplifyArticle));
-        logger.LogInformation("Simplifying article: {url}", request.ArticleUrl);
-
-        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
-        var httpClient = httpClientFactory!.CreateClient();
-
-        var requestJson = JsonSerializer.Serialize(request);
-        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-
-        try
-        {
-            var response = await httpClient.PostAsync(_articleSimplifierUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<ArticleSimplifierResponse>();
-            return result ?? new ArticleSimplifierResponse();
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Failed to call Article Simplifier. Status: {status}. " +
-                "Ensure ARTICLE_SIMPLIFIER_URL is set and function key is available (via Key Vault or URL parameter)",
-                ex.StatusCode);
-            throw;
-        }
-    }
-
-    // Activity: Generate image
-    [Function(nameof(GenerateImage))]
-    public async Task<ImageGeneratorResponse> GenerateImage(
-        [ActivityTrigger] ImageGeneratorRequest request,
-        FunctionContext context)
-    {
-        var logger = context.GetLogger(nameof(GenerateImage));
-        logger.LogInformation("Generating image for: {title}", request.ArticleTitle);
-
-        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
-        var httpClient = httpClientFactory!.CreateClient();
-
-        var requestJson = JsonSerializer.Serialize(request);
-        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-
-        try
-        {
-            var response = await httpClient.PostAsync(_imageGeneratorUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<ImageGeneratorResponse>();
-            return result ?? new ImageGeneratorResponse();
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Failed to call Image Generator. Status: {status}. " +
-                "Ensure IMAGE_GENERATOR_URL is set and function key is available (via Key Vault or URL parameter)",
-                ex.StatusCode);
-            throw;
-        }
-    }
-
-    // Activity: Generate audio
-    [Function(nameof(GenerateAudio))]
-    public async Task<TextToSpeechResponse> GenerateAudio(
-        [ActivityTrigger] TextToSpeechRequest request,
-        FunctionContext context)
-    {
-        var logger = context.GetLogger(nameof(GenerateAudio));
-        logger.LogInformation("Generating audio for: {title}", request.ArticleTitle);
-
-        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
-        var httpClient = httpClientFactory!.CreateClient();
-
-        var requestJson = JsonSerializer.Serialize(request);
-        var content = new StringContent(requestJson, System.Text.Encoding.UTF8, "application/json");
-
-        try
-        {
-            var response = await httpClient.PostAsync(_textToSpeechUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<TextToSpeechResponse>();
-            return result ?? new TextToSpeechResponse();
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Failed to call Text-to-Speech. Status: {status}. " +
-                "Ensure TEXT_TO_SPEECH_URL is set and function key is available (via Key Vault or URL parameter)",
-                ex.StatusCode);
-            throw;
-        }
-    }
-
-    // Activity: Warm up the Video Generator container app
     [Function(nameof(WarmupVideoGenerator))]
     public async Task<bool> WarmupVideoGenerator(
         [ActivityTrigger] FunctionContext context)
@@ -691,7 +452,6 @@ public class NewspaperOrchestratorFunction
 
         try
         {
-            // Call the health endpoint to trigger container spin-up
             httpClient.Timeout = TimeSpan.FromMinutes(2);
 
             var healthUrl = _videoGeneratorUrl.TrimEnd('/') + "/health";
@@ -712,13 +472,11 @@ public class NewspaperOrchestratorFunction
         }
         catch (Exception ex)
         {
-            // Don't fail the orchestration if warmup fails - it's just an optimization
             logger.LogWarning(ex, "Video Generator container warmup failed (non-critical): {message}", ex.Message);
             return false;
         }
     }
 
-    // Activity: Trigger async video generation job
     [Function(nameof(GenerateVideos))]
     public async Task<string> GenerateVideos(
         [ActivityTrigger] VideoGeneratorRequest request,
@@ -755,14 +513,11 @@ public class NewspaperOrchestratorFunction
         }
         catch (HttpRequestException ex)
         {
-            logger.LogError(ex, "Failed to trigger video generation. Status: {status}. " +
-                "Ensure VIDEO_GENERATOR_URL is set and Container App is accessible",
-                ex.StatusCode);
+            logger.LogError(ex, "Failed to trigger video generation. Status: {status}", ex.StatusCode);
             throw;
         }
     }
 
-    // Activity: Check video generation job status
     [Function(nameof(CheckVideoGenerationStatus))]
     public async Task<VideoGenerationStatusResponse> CheckVideoGenerationStatus(
         [ActivityTrigger] CheckVideoStatusRequest request,
@@ -798,154 +553,94 @@ public class NewspaperOrchestratorFunction
         }
         catch (HttpRequestException ex)
         {
-            logger.LogError(ex, "Failed to check video generation status. Status: {status}",
-                ex.StatusCode);
+            logger.LogError(ex, "Failed to check video generation status. Status: {status}", ex.StatusCode);
             throw;
         }
     }
 
-    // Activity: Publish videos to Instagram
-    [Function(nameof(PublishToInstagram))]
-    public async Task<InstagramPublishResponse> PublishToInstagram(
-        [ActivityTrigger] InstagramPublishRequest request,
-        FunctionContext context)
-    {
-        var logger = context.GetLogger(nameof(PublishToInstagram));
-        logger.LogInformation("Publishing to Instagram for batch: {path}", request.BatchResultPath);
+    // --- Activity: Storage operations ---
 
-        var httpClientFactory = context.InstanceServices.GetService(typeof(IHttpClientFactory)) as IHttpClientFactory;
-        var httpClient = httpClientFactory!.CreateClient();
-
-        var requestJson = JsonSerializer.Serialize(request);
-        var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
-        try
-        {
-            httpClient.Timeout = TimeSpan.FromMinutes(20);
-
-            var response = await httpClient.PostAsync(_instagramPublisherUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<InstagramPublishResponse>();
-            return result ?? new InstagramPublishResponse { Success = false, ErrorMessage = "Empty response from Instagram Publisher" };
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Failed to call Instagram Publisher. Status: {status}. " +
-                "Ensure INSTAGRAM_PUBLISHER_URL is set and function key is available",
-                ex.StatusCode);
-            throw;
-        }
-    }
-
-    // Activity: Save article JSON to storage
     [Function(nameof(SaveArticleJson))]
-    public async Task<SaveArticleJsonResponse> SaveArticleJson(
-        [ActivityTrigger] SaveArticleJsonRequest request,
+    public async Task<string> SaveArticleJson(
+        [ActivityTrigger] ProcessedArticle article,
         FunctionContext context)
     {
         var logger = context.GetLogger(nameof(SaveArticleJson));
-        logger.LogInformation("Saving article JSON for: {title}", request.Article.Title);
+        logger.LogInformation("Saving article JSON for: {title}", article.Title);
 
-        try
+        var containerClient = _blobServiceClient.GetBlobContainerClient(_containerConfig.ContainerName);
+
+        var blobPath = $"{article.StorageFolder}/article.json";
+        var blobClient = containerClient.GetBlobClient(blobPath);
+
+        var jsonOptions = new JsonSerializerOptions
         {
-            var blobServiceClient = new BlobServiceClient(_storageConnectionString);
-            var containerClient = blobServiceClient.GetBlobContainerClient(_blobContainerName);
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+        var jsonContent = JsonSerializer.Serialize(article, jsonOptions);
+        var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
 
-            var blobPath = $"{request.StorageFolder}/article.json";
-            var blobClient = containerClient.GetBlobClient(blobPath);
+        using var stream = new MemoryStream(jsonBytes);
 
-            // Serialize the article to JSON
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-            var jsonContent = JsonSerializer.Serialize(request.Article, jsonOptions);
-            var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
-
-            using var stream = new MemoryStream(jsonBytes);
-
-            var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
-            {
-                HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
-                {
-                    ContentType = "application/json"
-                }
-            };
-
-            await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
-
-            var blobUrl = blobClient.Uri.ToString();
-            logger.LogInformation("Saved article JSON to: {Url}", blobUrl);
-
-            return new SaveArticleJsonResponse
-            {
-                JsonUrl = blobUrl
-            };
-        }
-        catch (Exception ex)
+        var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
         {
-            logger.LogError(ex, "Failed to save article JSON. Ensure AzureWebJobsStorage and BLOB_CONTAINER_NAME are set");
-            throw;
-        }
+            HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
+            {
+                ContentType = "application/json"
+            }
+        };
+
+        await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
+
+        var blobUrl = blobClient.Uri.ToString();
+        logger.LogInformation("Saved article JSON to: {url}", blobUrl);
+
+        return blobUrl;
     }
 
-    // Activity: Save batch result JSON to storage
     [Function(nameof(SaveBatchResult))]
-    public async Task<SaveBatchResultResponse> SaveBatchResult(
-        [ActivityTrigger] SaveBatchResultRequest request,
+    public async Task<string> SaveBatchResult(
+        [ActivityTrigger] BatchResult batchResult,
         FunctionContext context)
     {
         var logger = context.GetLogger(nameof(SaveBatchResult));
         logger.LogInformation("Saving batch result (Success: {success}, FailedStep: {failedStep})",
-            request.BatchResult.Success, request.BatchResult.FailedStep);
+            batchResult.Success, batchResult.FailedStep);
 
-        try
+        var containerClient = _blobServiceClient.GetBlobContainerClient(_containerConfig.ContainerName);
+
+        var blobPath = $"{batchResult.StorageFolder}/batch-result.json";
+        var blobClient = containerClient.GetBlobClient(blobPath);
+
+        var jsonOptions = new JsonSerializerOptions
         {
-            var blobServiceClient = new BlobServiceClient(_storageConnectionString);
-            var containerClient = blobServiceClient.GetBlobContainerClient(_blobContainerName);
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+        var jsonContent = JsonSerializer.Serialize(batchResult, jsonOptions);
+        var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
 
-            var blobPath = $"{request.StorageFolder}/batch-result.json";
-            var blobClient = containerClient.GetBlobClient(blobPath);
+        using var stream = new MemoryStream(jsonBytes);
 
-            // Serialize the batch result to JSON
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-            var jsonContent = JsonSerializer.Serialize(request.BatchResult, jsonOptions);
-            var jsonBytes = Encoding.UTF8.GetBytes(jsonContent);
-
-            using var stream = new MemoryStream(jsonBytes);
-
-            var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
-            {
-                HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
-                {
-                    ContentType = "application/json"
-                }
-            };
-
-            await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
-
-            var blobUrl = blobClient.Uri.ToString();
-            logger.LogInformation("Saved batch result to: {Url}", blobUrl);
-
-            return new SaveBatchResultResponse
-            {
-                JsonUrl = blobUrl
-            };
-        }
-        catch (Exception ex)
+        var uploadOptions = new Azure.Storage.Blobs.Models.BlobUploadOptions
         {
-            logger.LogError(ex, "Failed to save batch result. Ensure AzureWebJobsStorage and BLOB_CONTAINER_NAME are set");
-            throw;
-        }
+            HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders
+            {
+                ContentType = "application/json"
+            }
+        };
+
+        await blobClient.UploadAsync(stream, uploadOptions, cancellationToken: default);
+
+        var blobUrl = blobClient.Uri.ToString();
+        logger.LogInformation("Saved batch result to: {url}", blobUrl);
+
+        return blobUrl;
     }
 
-    // HTTP endpoint to check orchestration status
+    // --- HTTP endpoint for status ---
+
     [Function("GetBatchStatus")]
     public async Task<HttpResponseData> GetStatus(
         [HttpTrigger(AuthorizationLevel.Function, "get", Route = "status/{instanceId}")] HttpRequestData req,
@@ -974,7 +669,8 @@ public class NewspaperOrchestratorFunction
         return response;
     }
 
-    // Timer trigger - runs daily at 3PM UTC for age 12
+    // --- Timer triggers ---
+
     [Function("DailyNewspaperScheduler_Age12")]
     public async Task RunDailyScheduler_Age12(
         [TimerTrigger("0 0 15 * * *")] TimerInfo timerInfo,
@@ -984,7 +680,6 @@ public class NewspaperOrchestratorFunction
         await RunSchedulerForAge(12, client, context);
     }
 
-    // Timer trigger - runs daily at 8PM UTC for age 16
     [Function("DailyNewspaperScheduler_Age16")]
     public async Task RunDailyScheduler_Age16(
         [TimerTrigger("0 0 20 * * *")] TimerInfo timerInfo,
@@ -994,7 +689,6 @@ public class NewspaperOrchestratorFunction
         await RunSchedulerForAge(16, client, context);
     }
 
-    // Helper method to run the scheduler for a specific age group
     private async Task RunSchedulerForAge(int age, DurableTaskClient client, FunctionContext context)
     {
         var logger = context.GetLogger($"RunDailyScheduler_Age{age}");
