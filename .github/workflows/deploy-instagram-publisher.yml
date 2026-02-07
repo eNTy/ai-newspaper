@@ -8,6 +8,7 @@ on:
       - 'lambdas/InstagramPublisher/**'
       - '.github/workflows/deploy-instagram-publisher.yml'
   workflow_dispatch:
+  workflow_call:
 
 env:
   DOTNET_VERSION: '8.0.x'

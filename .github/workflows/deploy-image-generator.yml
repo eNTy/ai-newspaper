@@ -8,6 +8,7 @@ on:
       - 'lambdas/ImageGenerator/**'
       - '.github/workflows/deploy-image-generator.yml'
   workflow_dispatch:
+  workflow_call:
 
 env:
   DOTNET_VERSION: '8.0.x'

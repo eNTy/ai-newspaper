@@ -8,6 +8,7 @@ on:
       - 'lambdas/RssProcessor/**'
       - '.github/workflows/deploy-rss-processor.yml'
   workflow_dispatch:
+  workflow_call:
 
 env:
   DOTNET_VERSION: '8.0.x'

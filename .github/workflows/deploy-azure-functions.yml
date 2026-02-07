@@ -3,166 +3,34 @@ name: Deploy All Azure Functions (Manual)
 on:
   workflow_dispatch:
 
-env:
-  #DEFAULT_RSS_URL: 'https://www.ceskenoviny.cz/sluzby/rss/zpravy.php'
-  DEFAULT_RSS_URL: 'https://ct24.ceskatelevize.cz/rss/tema/vyber-redakce-84313'
-  BLOB_CONTAINER_NAME: 'batch-runs'
-  DOTNET_VERSION: '8.0.x'
-  AZURE_RESOURCE_GROUP: 'ai-newspaper-rg'
-  AZURE_LOCATION: 'westeurope'
-  AZURE_FUNCTIONAPP_RSS_PROCESSOR: 'ai-newspaper-rss-processor'
-  AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER: 'ai-newspaper-article-simplifier'
-  AZURE_FUNCTIONAPP_IMAGE_GENERATOR: 'ai-newspaper-image-generator'
-  AZURE_FUNCTIONAPP_TEXT_TO_SPEECH: 'ai-newspaper-text-to-speech'
-  AZURE_FUNCTIONAPP_ORCHESTRATOR: 'ai-newspaper-orchestrator'
-
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  deploy-rss-processor:
+    uses: ./.github/workflows/deploy-rss-processor.yml
+    secrets: inherit
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+  deploy-article-simplifier:
+    uses: ./.github/workflows/deploy-article-simplifier.yml
+    secrets: inherit
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
+  deploy-image-generator:
+    uses: ./.github/workflows/deploy-image-generator.yml
+    secrets: inherit
 
-    - name: Login to Azure
-      uses: azure/login@v2
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+  deploy-text-to-speech:
+    uses: ./.github/workflows/deploy-text-to-speech.yml
+    secrets: inherit
 
-    # Deploy RssProcessor
-    - name: Build RssProcessor
-      run: |
-        cd lambdas/RssProcessor
-        dotnet publish --configuration Release --output ./output
+  deploy-instagram-publisher:
+    uses: ./.github/workflows/deploy-instagram-publisher.yml
+    secrets: inherit
 
-    - name: Deploy RssProcessor to Azure
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }}
-        package: lambdas/RssProcessor/output
-
-    - name: Configure RssProcessor App Settings
-      run: |
-        az functionapp config appsettings set \
-          --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
-
-        az functionapp cors add \
-          --name ${{ env.AZURE_FUNCTIONAPP_RSS_PROCESSOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --allowed-origins https://portal.azure.com
-
-    # Deploy ArticleSimplifier
-    - name: Build ArticleSimplifier
-      run: |
-        cd lambdas/ArticleSimplifier
-        dotnet publish --configuration Release --output ./output
-
-    - name: Deploy ArticleSimplifier to Azure
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }}
-        package: lambdas/ArticleSimplifier/output
-
-    - name: Configure ArticleSimplifier App Settings
-      run: |
-        az functionapp config appsettings set \
-          --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
-
-        az functionapp cors add \
-          --name ${{ env.AZURE_FUNCTIONAPP_ARTICLE_SIMPLIFIER }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --allowed-origins https://portal.azure.com
-
-    # Deploy ImageGenerator
-    - name: Build ImageGenerator
-      run: |
-        cd lambdas/ImageGenerator
-        dotnet publish --configuration Release --output ./output
-
-    - name: Deploy ImageGenerator to Azure
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }}
-        package: lambdas/ImageGenerator/output
-
-    - name: Configure ImageGenerator App Settings
-      run: |
-        az functionapp config appsettings set \
-          --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings \
-            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
-            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
-
-        az functionapp cors add \
-          --name ${{ env.AZURE_FUNCTIONAPP_IMAGE_GENERATOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --allowed-origins https://portal.azure.com
-
-    # Deploy TextToSpeech
-    - name: Build TextToSpeech
-      run: |
-        cd lambdas/TextToSpeech
-        dotnet publish --configuration Release --output ./output
-
-    - name: Deploy TextToSpeech to Azure
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }}
-        package: lambdas/TextToSpeech/output
-
-    - name: Configure TextToSpeech App Settings
-      run: |
-        az functionapp config appsettings set \
-          --name ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings \
-            "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
-            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
-
-        az functionapp cors add \
-          --name ${{ env.AZURE_FUNCTIONAPP_TEXT_TO_SPEECH }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --allowed-origins https://portal.azure.com
-
-    # Deploy NewspaperOrchestrator
-    - name: Build NewspaperOrchestrator
-      run: |
-        cd lambdas/NewspaperOrchestrator
-        dotnet publish --configuration Release --output ./output
-
-    - name: Deploy NewspaperOrchestrator to Azure
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }}
-        package: lambdas/NewspaperOrchestrator/output
-
-    - name: Configure NewspaperOrchestrator App Settings
-      run: |
-        az functionapp config appsettings set \
-          --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --settings \
-            "RSS_PROCESSOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-rss-processor --function-name RssProcessor --query default -o tsv)" \
-            "ARTICLE_SIMPLIFIER_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-article-simplifier --function-name ArticleSimplifier --query default -o tsv)" \
-            "IMAGE_GENERATOR_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-image-generator --function-name ImageGenerator --query default -o tsv)" \
-            "TEXT_TO_SPEECH_URL=$(az functionapp function show -g ai-newspaper-rg -n ai-newspaper-text-to-speech --function-name TextToSpeech --query invokeUrlTemplate -o tsv)?code=$(az functionapp function keys list -g ai-newspaper-rg -n ai-newspaper-text-to-speech --function-name TextToSpeech --query default -o tsv)" \
-            "BLOB_CONTAINER_NAME=${{ env.BLOB_CONTAINER_NAME }}" \
-            "DEFAULT_RSS_URL=${{ env.DEFAULT_RSS_URL }}" \
-
-        az functionapp cors add \
-          --name ${{ env.AZURE_FUNCTIONAPP_ORCHESTRATOR }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --allowed-origins https://portal.azure.com
-
-    - name: Logout from Azure
-      run: az logout
+  # Orchestrator must deploy last - it resolves URLs/keys of all other functions
+  deploy-orchestrator:
+    needs:
+      - deploy-rss-processor
+      - deploy-article-simplifier
+      - deploy-image-generator
+      - deploy-text-to-speech
+      - deploy-instagram-publisher
+    uses: ./.github/workflows/deploy-orchestrator.yml
+    secrets: inherit
