@@ -382,6 +382,152 @@ if ([string]::IsNullOrEmpty($appUrl)) {
     Write-Host "Container App URL: https://$appUrl" -ForegroundColor Green
 }
 
+# Create Azure Communication Services for email notifications
+$CommunicationService = "ai-newspaper-comm"
+Write-Host ""
+Write-Host "Setting up Azure Communication Services: $CommunicationService..." -ForegroundColor Cyan
+
+Write-Host "Installing communication extension if needed..." -ForegroundColor Yellow
+az extension add --name communication --upgrade 2>$null
+
+# Step 1: Create Communication Services resource
+$null = az communication show `
+    --name $CommunicationService `
+    --resource-group $ResourceGroup 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating Communication Services resource..." -ForegroundColor Yellow
+    az communication create `
+        --name $CommunicationService `
+        --resource-group $ResourceGroup `
+        --location Global `
+        --data-location europe `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Communication Services resource" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Communication Services created successfully." -ForegroundColor Green
+} else {
+    Write-Host "Communication Services already exists." -ForegroundColor Green
+}
+
+# Step 2: Create Email Communication Service
+$EmailService = "ai-newspaper-email"
+Write-Host ""
+Write-Host "Setting up Email Communication Service: $EmailService..." -ForegroundColor Cyan
+
+$null = az communication email show `
+    --name $EmailService `
+    --resource-group $ResourceGroup 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating Email Communication Service..." -ForegroundColor Yellow
+    az communication email create `
+        --name $EmailService `
+        --resource-group $ResourceGroup `
+        --location Global `
+        --data-location europe `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Email Communication Service" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Email Communication Service created successfully." -ForegroundColor Green
+} else {
+    Write-Host "Email Communication Service already exists." -ForegroundColor Green
+}
+
+# Step 3: Create Azure-managed email domain
+Write-Host ""
+Write-Host "Setting up Azure-managed email domain..." -ForegroundColor Cyan
+
+$null = az communication email domain show `
+    --domain-name AzureManagedDomain `
+    --email-service-name $EmailService `
+    --resource-group $ResourceGroup 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating Azure-managed email domain..." -ForegroundColor Yellow
+    az communication email domain create `
+        --domain-name AzureManagedDomain `
+        --email-service-name $EmailService `
+        --resource-group $ResourceGroup `
+        --location Global `
+        --domain-management AzureManaged `
+        --output table
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to create Azure-managed email domain" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "Azure-managed email domain created successfully." -ForegroundColor Green
+} else {
+    Write-Host "Azure-managed email domain already exists." -ForegroundColor Green
+}
+
+# Step 4: Link email domain to Communication Services
+Write-Host ""
+Write-Host "Linking email domain to Communication Services..." -ForegroundColor Cyan
+
+$domainResourceId = az communication email domain show `
+    --domain-name AzureManagedDomain `
+    --email-service-name $EmailService `
+    --resource-group $ResourceGroup `
+    --query "id" `
+    --output tsv
+
+if ([string]::IsNullOrEmpty($domainResourceId)) {
+    Write-Host "Error: Failed to retrieve email domain resource ID" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+az communication update `
+    --name $CommunicationService `
+    --resource-group $ResourceGroup `
+    --linked-domains "[$domainResourceId]" `
+    --output table
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Warning: Failed to link email domain (may already be linked)" -ForegroundColor Yellow
+} else {
+    Write-Host "Email domain linked to Communication Services successfully." -ForegroundColor Green
+}
+
+# Retrieve the MailFrom sender address
+$notificationEmailFrom = az communication email domain show `
+    --domain-name AzureManagedDomain `
+    --email-service-name $EmailService `
+    --resource-group $ResourceGroup `
+    --query "mailFromSenderDomain" `
+    --output tsv
+
+if (-not [string]::IsNullOrEmpty($notificationEmailFrom)) {
+    $notificationEmailFrom = "DoNotReply@$notificationEmailFrom"
+    Write-Host "Email sender address: $notificationEmailFrom" -ForegroundColor Green
+} else {
+    Write-Host "Warning: Could not determine MailFrom address. Check Azure Portal." -ForegroundColor Yellow
+    $notificationEmailFrom = "<check Azure Portal -> Email Service -> Domain -> MailFrom>"
+}
+
+# Retrieve connection string
+Write-Host ""
+Write-Host "Retrieving Communication Services connection string..." -ForegroundColor Cyan
+$emailConnectionString = az communication list-key `
+    --name $CommunicationService `
+    --resource-group $ResourceGroup `
+    --query "primaryConnectionString" `
+    --output tsv
+
+if ([string]::IsNullOrEmpty($emailConnectionString)) {
+    Write-Host "Error: Failed to retrieve Communication Services connection string" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Host "Communication Services connection string retrieved." -ForegroundColor Green
+
 # Create Service Principal for GitHub Actions
 Write-Host ""
 Write-Host "Creating Service Principal for GitHub Actions..." -ForegroundColor Cyan
@@ -436,6 +582,7 @@ Write-Host "  - batch-runs (private)"
 Write-Host "  - public-files (public blob access)"
 Write-Host "Container Registry: $ContainerRegistry"
 Write-Host "Application Insights: $AppInsightsName"
+Write-Host "Communication Services: $CommunicationService"
 Write-Host "Function Apps:"
 Write-Host "  - $OrchestratorApp (Consumption)"
 Write-Host "Container Apps:"
@@ -466,6 +613,15 @@ Write-Host "   Value: <instagram-account-id-for-age-12>"
 Write-Host ""
 Write-Host "6. INSTAGRAM_ACCOUNT_ID_16" -ForegroundColor Cyan
 Write-Host "   Value: <instagram-account-id-for-age-16>"
+Write-Host ""
+Write-Host "7. EMAIL_CONNECTION_STRING" -ForegroundColor Cyan
+Write-Host "   Value: $emailConnectionString"
+Write-Host ""
+Write-Host "8. NOTIFICATION_EMAIL_TO" -ForegroundColor Cyan
+Write-Host "   Value: <your-email-address>"
+Write-Host ""
+Write-Host "9. NOTIFICATION_EMAIL_FROM" -ForegroundColor Cyan
+Write-Host "   Value: $notificationEmailFrom"
 Write-Host ""
 Write-Host "Note: Get your OpenAI API key from https://platform.openai.com/api-keys" -ForegroundColor Yellow
 Write-Host ""

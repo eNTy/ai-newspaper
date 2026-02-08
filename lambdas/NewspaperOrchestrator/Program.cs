@@ -1,4 +1,5 @@
 using System.Net;
+using Azure.Communication.Email;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,6 +49,11 @@ var host = new HostBuilder()
 
         services.AddSingleton(new BlobServiceClient(storageConnectionString));
         services.AddSingleton(new BlobContainerConfig(blobContainerName));
+
+        // Azure Communication Services (email notifications)
+        var emailConnectionString = Environment.GetEnvironmentVariable("EMAIL_CONNECTION_STRING")
+            ?? throw new InvalidOperationException("EMAIL_CONNECTION_STRING environment variable is not set");
+        services.AddSingleton(new EmailClient(emailConnectionString));
     })
     .Build();
 

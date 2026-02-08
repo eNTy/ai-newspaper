@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Azure.Communication.Email;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -17,18 +18,27 @@ public class NewspaperOrchestratorFunction
     private readonly string _videoGeneratorUrl;
     private readonly BlobServiceClient _blobServiceClient;
     private readonly BlobContainerConfig _containerConfig;
+    private readonly EmailClient _emailClient;
+    private readonly string _notificationRecipient;
+    private readonly string _notificationSender;
 
     public NewspaperOrchestratorFunction(
         ILogger<NewspaperOrchestratorFunction> logger,
         BlobServiceClient blobServiceClient,
-        BlobContainerConfig containerConfig)
+        BlobContainerConfig containerConfig,
+        EmailClient emailClient)
     {
         _logger = logger;
         _blobServiceClient = blobServiceClient;
         _containerConfig = containerConfig;
+        _emailClient = emailClient;
 
         _videoGeneratorUrl = Environment.GetEnvironmentVariable("VIDEO_GENERATOR_URL")
             ?? throw new InvalidOperationException("VIDEO_GENERATOR_URL environment variable is not set");
+        _notificationRecipient = Environment.GetEnvironmentVariable("NOTIFICATION_EMAIL_TO")
+            ?? throw new InvalidOperationException("NOTIFICATION_EMAIL_TO environment variable is not set");
+        _notificationSender = Environment.GetEnvironmentVariable("NOTIFICATION_EMAIL_FROM")
+            ?? throw new InvalidOperationException("NOTIFICATION_EMAIL_FROM environment variable is not set");
 
         _logger.LogInformation("NewspaperOrchestratorFunction initialized");
     }
@@ -143,6 +153,15 @@ public class NewspaperOrchestratorFunction
                 logger.LogError(persistEx, "Failed to persist batch result after orchestration failure");
             }
 
+            try
+            {
+                await context.CallActivityAsync(nameof(SendFailureEmail), batchResult);
+            }
+            catch (Exception emailEx)
+            {
+                logger.LogError(emailEx, "Failed to send failure notification email");
+            }
+
             return batchResult;
         }
         catch (Exception ex)
@@ -160,6 +179,15 @@ public class NewspaperOrchestratorFunction
             catch (Exception persistEx)
             {
                 logger.LogError(persistEx, "Failed to persist batch result after orchestration failure");
+            }
+
+            try
+            {
+                await context.CallActivityAsync(nameof(SendFailureEmail), batchResult);
+            }
+            catch (Exception emailEx)
+            {
+                logger.LogError(emailEx, "Failed to send failure notification email");
             }
 
             return batchResult;
@@ -637,6 +665,56 @@ public class NewspaperOrchestratorFunction
         logger.LogInformation("Saved batch result to: {url}", blobUrl);
 
         return blobUrl;
+    }
+
+    // --- Activity: Failure notification ---
+
+    [Function(nameof(SendFailureEmail))]
+    public async Task SendFailureEmail(
+        [ActivityTrigger] BatchResult batchResult,
+        FunctionContext context)
+    {
+        var logger = context.GetLogger(nameof(SendFailureEmail));
+        logger.LogInformation("Sending failure notification email for step: {step}", batchResult.FailedStep);
+
+        var subject = $"Newspaper Orchestration Failed: {batchResult.FailedStep}";
+        var body = $"""
+            <h2>Orchestration Failed</h2>
+            <p><strong>Failed Step:</strong> {batchResult.FailedStep}</p>
+            <p><strong>Error:</strong> {batchResult.ErrorMessage}</p>
+            <p><strong>RSS URL:</strong> {batchResult.RssUrl}</p>
+            <p><strong>Audience Age:</strong> {batchResult.AudienceAge}</p>
+            <p><strong>Duration:</strong> {batchResult.BatchDuration}</p>
+            <p><strong>Storage Folder:</strong> {batchResult.StorageFolder}</p>
+            """;
+
+        var emailMessage = new EmailMessage(
+            senderAddress: _notificationSender,
+            recipientAddress: _notificationRecipient,
+            content: new EmailContent(subject) { Html = body });
+
+        await _emailClient.SendAsync(Azure.WaitUntil.Started, emailMessage);
+        logger.LogInformation("Failure notification email sent");
+    }
+
+    // --- HTTP endpoint for testing email ---
+
+    [Function("TestEmail")]
+    public async Task<HttpResponseData> TestEmail(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req)
+    {
+        var body = await new StreamReader(req.Body).ReadToEndAsync();
+
+        var emailMessage = new EmailMessage(
+            senderAddress: _notificationSender,
+            recipientAddress: _notificationRecipient,
+            content: new EmailContent("AI Newspaper - Test Email") { Html = body });
+
+        await _emailClient.SendAsync(Azure.WaitUntil.Started, emailMessage);
+
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteStringAsync("Email sent");
+        return response;
     }
 
     // --- HTTP endpoint for status ---

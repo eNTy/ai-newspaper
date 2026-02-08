@@ -29,7 +29,9 @@
       "Bash(az containerapp show:*)",
       "Bash(az containerapp env show:*)",
       "Bash(az containerapp update:*)",
-      "Bash(dotnet sln add:*)"
+      "Bash(dotnet sln add:*)",
+      "Bash(dotnet add package:*)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

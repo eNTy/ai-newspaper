@@ -70,7 +70,10 @@ jobs:
             "INSTAGRAM_ACCESS_TOKEN=${{ secrets.INSTAGRAM_ACCESS_TOKEN }}" \
             "INSTAGRAM_API_VERSION=v24.0" \
             "INSTAGRAM_ACCOUNT_ID_12=${{ secrets.INSTAGRAM_ACCOUNT_ID_12 }}" \
-            "INSTAGRAM_ACCOUNT_ID_16=${{ secrets.INSTAGRAM_ACCOUNT_ID_16 }}"
+            "INSTAGRAM_ACCOUNT_ID_16=${{ secrets.INSTAGRAM_ACCOUNT_ID_16 }}" \
+            "EMAIL_CONNECTION_STRING=${{ secrets.EMAIL_CONNECTION_STRING }}" \
+            "NOTIFICATION_EMAIL_TO=${{ secrets.NOTIFICATION_EMAIL_TO }}" \
+            "NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }}"
 
         az functionapp cors add \
           --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
