@@ -83,6 +83,39 @@ Each storage folder must contain these blobs in the `batch-runs` container:
 - **Title Overlay**: Centered white text on semi-transparent black box (if title available)
 - **C2PA**: Content provenance metadata embedded via c2patool
 
+## Architecture
+
+### Request Flow
+
+1. `POST /api/generate` — creates a job, returns job ID immediately (202)
+2. Background task processes folders sequentially (global semaphore, one FFMPEG at a time)
+3. For each folder: download blobs → ffprobe audio duration → FFMPEG video → c2patool C2PA → upload video
+4. Orchestrator polls `GET /api/generate/status/{jobId}` until `Completed` or `Failed`
+
+### Concurrency
+
+- **Global semaphore** ensures only one FFMPEG process runs per instance (prevents OOM)
+- **In-memory job store** tracks job state (ConcurrentDictionary)
+- Multiple requests queue up; each waits for the semaphore
+- Azure Container Apps scales horizontally (0–10 replicas), so up to 10 videos can process in parallel across instances
+
+### Error Handling
+
+- Errors are per-folder, not per-batch
+- Failed folders get `success: false` with error message; successful ones get `success: true` with video URL
+- Batch continues even if individual folders fail
+- Job-level failures (e.g. missing storage connection) set the whole job to `Failed`
+
+## Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AzureWebJobsStorage` | Azure Storage connection string | (required) |
+| `BLOB_CONTAINER_NAME` | Blob container name | `batch-runs` |
+| `ASPNETCORE_URLS` | Listening URL | `http://+:8080` |
+
+For local development with Azurite, the connection string uses `host.docker.internal:10000` to reach the host.
+
 ## Local Development
 
 ### Prerequisites
@@ -118,48 +151,79 @@ Each storage folder must contain these blobs in the `batch-runs` container:
 Use the launch configurations from the root workspace:
 - **Orchestrator + VideoGenerator** — starts Azurite, the orchestrator, and builds/runs the VideoGenerator container
 
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AzureWebJobsStorage` | Azure Storage connection string | (required) |
-| `BLOB_CONTAINER_NAME` | Blob container name | `batch-runs` |
-| `ASPNETCORE_URLS` | Listening URL | `http://+:8080` |
-
-For local development with Azurite, the connection string uses `host.docker.internal:10000` to reach the host.
-
-## Architecture
-
-### Request Flow
-
-1. `POST /api/generate` — creates a job, returns job ID immediately (202)
-2. Background task processes folders sequentially (global semaphore, one FFMPEG at a time)
-3. For each folder: download blobs → ffprobe audio duration → FFMPEG video → c2patool C2PA → upload video
-4. Orchestrator polls `GET /api/generate/status/{jobId}` until `Completed` or `Failed`
-
-### Concurrency
-
-- **Global semaphore** ensures only one FFMPEG process runs per instance (prevents OOM)
-- **In-memory job store** tracks job state (ConcurrentDictionary)
-- Multiple requests queue up; each waits for the semaphore
-- Azure Container Apps scales horizontally (0–10 replicas), so up to 10 videos can process in parallel across instances
-
-### Error Handling
-
-- Errors are per-folder, not per-batch
-- Failed folders get `success: false` with error message; successful ones get `success: true` with video URL
-- Batch continues even if individual folders fail
-- Job-level failures (e.g. missing storage connection) set the whole job to `Failed`
-
 ## Azure Deployment
 
-Deployed via GitHub Actions (`deploy-video-generator-aca.yml`) on push to `master` when `containers/VideoGenerator/**` changes.
+### Azure Resources
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for initial setup details.
+| Resource | Name | SKU |
+|----------|------|-----|
+| Container Registry | `ainewspapervideogen` | Basic |
+| Container App Environment | `ai-newspaper-containerapp-env` | Consumption |
+| Container App | `ai-newspaper-video-generator` | 1 CPU / 2 GB |
+| Application Insights | `ai-newspaper-app-insights` | Pay-as-you-go |
+
+### Initial Setup
+
+```powershell
+cd scripts
+.\setup-video-generator-aca.ps1
+```
+
+Creates the container registry, container app environment, container app, and configures environment variables and Application Insights.
+
+### CI/CD
+
+GitHub Actions workflow (`deploy-video-generator-aca.yml`) triggers on push to `master` when `containers/VideoGenerator/**` changes. Builds via `az acr build` in Azure, tags with `:latest` and `:${github.sha}`, and updates the container app.
+
+### Manual Deployment
+
+```powershell
+az login
+
+cd containers/VideoGenerator
+az acr build `
+  --registry ainewspapervideogen `
+  --image videogenerator:latest `
+  --file Dockerfile `
+  .
+
+az containerapp update `
+  --name ai-newspaper-video-generator `
+  --resource-group ai-newspaper-rg `
+  --image ainewspapervideogen.azurecr.io/videogenerator:latest
+```
+
+### Scaling
+
+Current config: min 0, max 10 replicas, HTTP-based scaling rule.
+
+```powershell
+# Disable scale-to-zero (avoids cold starts, increases cost)
+az containerapp update `
+  --name ai-newspaper-video-generator `
+  --resource-group ai-newspaper-rg `
+  --min-replicas 1
+```
+
+### Cost Estimate
+
+| Resource | Monthly Cost |
+|----------|-------------|
+| Container Registry (Basic) | ~$5 |
+| Container App (scale-to-zero) | ~$0–5 |
+| Application Insights (<5 GB) | Free |
+| **Total** | **~$5–10** |
+
+### Security
+
+- Container Registry: admin access, credentials as Container App secrets
+- Storage: connection string as encrypted environment variable
+- Container App: HTTPS-only ingress
+- Blob access: public for generated videos, 30-day lifecycle policy
 
 ## Monitoring
 
-Application Insights is enabled for structured logging. Query logs in Azure Portal:
+Application Insights is enabled for structured logging. Query in Azure Portal:
 
 ```kusto
 // All VideoGenerator traces
@@ -175,18 +239,24 @@ traces
 | order by timestamp desc
 ```
 
-Container logs via CLI:
-```bash
-az containerapp logs show \
-  --name ai-newspaper-video-generator \
-  --resource-group ai-newspaper-rg \
+```powershell
+# Stream container logs
+az containerapp logs show `
+  --name ai-newspaper-video-generator `
+  --resource-group ai-newspaper-rg `
   --tail 100 --follow
+
+# Check revisions
+az containerapp revision list `
+  --name ai-newspaper-video-generator `
+  --resource-group ai-newspaper-rg `
+  --output table
 ```
 
 ## Troubleshooting
 
 ### 504 Gateway Timeout from Orchestrator
-Azure Container Apps has a hard 240-second ingress timeout. The async job pattern avoids this — the orchestrator polls instead of waiting for a synchronous response. See [TIMEOUT-ISSUES.md](TIMEOUT-ISSUES.md) for details.
+Azure Container Apps has a hard 240-second ingress timeout. The async job pattern avoids this — the orchestrator polls instead of waiting for a synchronous response.
 
 ### Container won't start
 - Check Docker is running: `docker ps`
@@ -201,21 +271,3 @@ Azure Container Apps has a hard 240-second ingress timeout. The async job patter
 
 ### Cold start in Azure
 First request after idle may take 10–30 seconds (scale-to-zero). The orchestrator warms up the container with a `/health` ping at the start of each orchestration.
-
-## Project Structure
-
-```
-containers/VideoGenerator/
-├── Program.cs              # API endpoints + video generation logic
-├── VideoGenerator.csproj   # Project file
-├── Dockerfile              # Multi-stage Docker build (includes FFMPEG + c2patool)
-├── c2pa-manifest.json      # C2PA content provenance manifest
-├── appsettings.json        # Configuration
-├── build-and-run.ps1       # Local build/run/stop script
-├── test-api.ps1            # API test script
-├── DEPLOYMENT.md           # Azure deployment guide
-├── CONCURRENCY.md          # Concurrency design notes
-├── TIMEOUT-ISSUES.md       # Timeout troubleshooting
-├── APPLICATION-INSIGHTS.md # Monitoring setup notes
-└── README.md
-```

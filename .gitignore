@@ -15,8 +15,6 @@ env/
 .idea/
 *.swp
 *.swo
-
-# Claude
 .claude/
 
 # OS
@@ -54,7 +52,7 @@ __blobstorage__/
 __queuestorage__/
 __tablestorage__/
 AzuriteConfig
-lambdas/ImageGenerator/nul
+nul
 
 # Local scripts
 scripts-local/
