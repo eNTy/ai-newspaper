@@ -751,7 +751,7 @@ public class NewspaperOrchestratorFunction
 
     [Function("DailyNewspaperScheduler_Age12")]
     public async Task RunDailyScheduler_Age12(
-        [TimerTrigger("0 0 15 * * *")] TimerInfo timerInfo,
+        [TimerTrigger("0 0 14 * * *")] TimerInfo timerInfo,
         [DurableClient] DurableTaskClient client,
         FunctionContext context)
     {
@@ -760,7 +760,7 @@ public class NewspaperOrchestratorFunction
 
     [Function("DailyNewspaperScheduler_Age16")]
     public async Task RunDailyScheduler_Age16(
-        [TimerTrigger("0 0 20 * * *")] TimerInfo timerInfo,
+        [TimerTrigger("0 0 19 * * *")] TimerInfo timerInfo,
         [DurableClient] DurableTaskClient client,
         FunctionContext context)
     {
