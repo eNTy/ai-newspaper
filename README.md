@@ -1,142 +1,100 @@
 # AI Newspaper
 
-An AI-powered newspaper generation system using Azure Functions and OpenAI to create age-appropriate news content.
+An AI-powered newspaper generation system that fetches news, rewrites it for specific age groups, generates illustrations, produces video narrations, and publishes to Instagram — all orchestrated by Azure Durable Functions.
 
 ## Project Structure
 
-- `lambdas/` - Azure Functions for AI processing
-  - `RssProcessor/` - Fetches RSS feeds and selects top 3 articles for target age
-  - `ArticleSimplifier/` - Simplifies articles for specific age groups
-  - `ImageGenerator/` - Generates illustrations for articles using DALL-E 3
-  - `NewspaperOrchestrator/` - Orchestrates batch processing of all three functions
-- `infrastructure/` - VM and infrastructure configuration
-- `scripts/` - Utility scripts
+- `lambdas/NewspaperOrchestrator/` - Azure Durable Function that orchestrates the entire pipeline (all processing steps are built-in activities)
+- `containers/VideoGenerator/` - Containerized video generation service (Azure Container App)
+- `scripts/` - Azure setup and maintenance scripts
+- `scripts-local/` - Local development/testing scripts
+- `public-files/` - Static public assets
+- `tests/` - Test data and local test harnesses
 
-## Features
+## Pipeline
 
-- **RSS Processing**: Fetches news from any RSS feed and uses OpenAI (GPT-4o) to select the most appropriate articles for a target age group
-- **Article Simplification**: Rewrites articles in age-appropriate language (maintains original language, no translation)
-- **Image Generation**: Creates actual PNG illustrations using DALL-E 3
-- **Batch Orchestration**: Durable function that processes all 3 articles in parallel for optimal performance
-- **Azure Storage**: Stores generated images in Azure Blob Storage
+The orchestrator runs the following steps as durable activities:
 
-## Setup
+1. **Fetch Articles** — parses an RSS feed and selects the top 3 articles for the target age group (GPT-4o)
+2. **Simplify Articles** — rewrites each article in age-appropriate language (parallel, Claude)
+3. **Generate Images + Audio** — creates DALL-E 3 illustrations and text-to-speech audio for each article (parallel)
+4. **Save Article JSONs** — persists each article's data to Azure Blob Storage
+5. **Generate Videos** — sends articles to the VideoGenerator container app, polls for completion
+6. **Publish to Instagram** — publishes the videos as an Instagram carousel
+7. **Persist Batch Result** — saves the final batch result JSON to storage
+
+On failure, the orchestrator persists the partial result and sends a notification email.
+
+## Scheduling
+
+Two daily timer triggers run automatically:
+
+| Trigger | Age Group | Schedule (UTC) |
+|---------|-----------|----------------|
+| `DailyNewspaperScheduler_Age12` | 12 | 14:00 |
+| `DailyNewspaperScheduler_Age16` | 16 | 19:00 |
+
+Each run stores output in `age-{age}/{yyyy-MM-dd}/` in the `batch-runs` blob container.
+
+## Local Development
 
 ### Prerequisites
 
 - .NET 8.0 SDK
 - Azure Functions Core Tools v4
-- OpenAI API Key (get from https://platform.openai.com/)
-- Azure Storage Account (or Azurite for local development)
+- Azurite (local storage emulator)
+- Docker (for VideoGenerator)
 
-### Local Development Setup
+### Setup
 
-1. Clone the repository:
+1. Configure the orchestrator:
    ```bash
-   git clone <repository-url>
-   cd ai-newspaper
-   ```
-
-2. Configure each Azure Function:
-   ```bash
-   # For each function (RssProcessor, ArticleSimplifier, ImageGenerator):
-   cd lambdas/<FunctionName>
-
-   # Copy the template and add your OpenAI API key
+   cd lambdas/NewspaperOrchestrator
    cp local.settings.json.template local.settings.json
-
-   # Edit local.settings.json and add:
-   # - OPENAI_API_KEY: Your OpenAI API key (starts with sk-)
+   # Edit local.settings.json with your API keys
    ```
 
-3. Build and run:
-   ```bash
-   cd lambdas/<FunctionName>
-   dotnet build
-   cd bin/Debug/net8.0
-   func start --no-build
-   ```
+2. Use the VS Code launch configurations:
+   - **Orchestrator** — starts Azurite + NewspaperOrchestrator (port 7074)
+   - **Orchestrator + VideoGenerator** — also builds and runs the VideoGenerator Docker container
 
-## API Endpoints
+### API Endpoints (Port 7074)
 
-### RssProcessor (Port 7071)
+**Start batch processing:**
 ```bash
-POST http://localhost:7071/api/RssProcessor
-{
-  "rssUrl": "https://example.com/rss",
-  "audienceAge": 12
-}
-```
-
-### ArticleSimplifier (Port 7072)
-```bash
-POST http://localhost:7072/api/ArticleSimplifier
-{
-  "articleUrl": "https://example.com/article",
-  "audienceAge": 12
-}
-```
-
-### ImageGenerator (Port 7073)
-```bash
-POST http://localhost:7073/api/ImageGenerator
-{
-  "articleTitle": "Article Title",
-  "simplifiedArticle": "Article text...",
-  "audienceAge": 12,
-  "storageFolder": "images"
-}
-```
-
-### NewspaperOrchestrator (Port 7074) - Batch Processing
-```bash
-# Start batch processing
 POST http://localhost:7074/api/StartNewspaperBatch
-{
-  "rssUrl": "https://example.com/rss",
-  "audienceAge": 12,
-  "storageFolder": "images"
-}
+Content-Type: application/json
 
-# Check status
-GET http://localhost:7074/api/status/{instanceId}
+{
+  "rssUrl": "https://www.ceskenoviny.cz/sluzby/rss/zpravy.php",
+  "audienceAge": 12,
+  "storageFolder": "age-12/2026-01-15"
+}
 ```
 
-This orchestrator automatically:
-1. Fetches top 3 articles from RSS
-2. Simplifies all 3 articles in parallel
-3. Generates images for all 3 in parallel
-4. Returns complete batch result
-
-See [lambdas/NewspaperOrchestrator/README.md](lambdas/NewspaperOrchestrator/README.md) for details.
-
-## Security
-
-**Important**: Never commit `local.settings.json` files containing API keys. These files are ignored by git.
-
-To configure for production:
+**Check status:**
 ```bash
-az functionapp config appsettings set \
-  --name <function-app-name> \
-  --resource-group <resource-group> \
-  --settings "CLAUDE_API_KEY=your-key"
+GET http://localhost:7074/api/status/{instanceId}
 ```
 
 ## Deployment
 
-The project uses GitHub Actions for continuous deployment to Azure Functions.
+Three GitHub Actions workflows deploy on push to `master`:
 
-### Quick Start
+| Workflow | Trigger Path | Target |
+|----------|-------------|--------|
+| `deploy-orchestrator.yml` | `lambdas/NewspaperOrchestrator/**` | Azure Function App |
+| `deploy-video-generator-aca.yml` | `containers/VideoGenerator/**` | Azure Container App |
+| `deploy-public-files.yml` | `public-files/**` | Azure Blob Storage |
 
-1. Run the setup script:
-   ```bash
-   cd scripts
-   chmod +x setup-azure-resources.sh
-   ./setup-azure-resources.sh
-   ```
+### Required GitHub Secrets
 
-2. Add the GitHub secrets shown in the script output to your repository
+- `AZURE_CREDENTIALS` — Service principal for Azure login
+- `OPENAI_API_KEY` — OpenAI API key
+- `DEFAULT_RSS_URL` — RSS feed URL
+- `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID_12`, `INSTAGRAM_ACCOUNT_ID_16` — Instagram Graph API
+- `EMAIL_CONNECTION_STRING`, `NOTIFICATION_EMAIL_TO`, `NOTIFICATION_EMAIL_FROM` — Azure Communication Services
 
-3. Push to master branch to trigger deployment
+## Security
 
-For detailed instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)
+Never commit `local.settings.json` files containing API keys — they are git-ignored.
