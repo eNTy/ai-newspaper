@@ -749,22 +749,114 @@ public class NewspaperOrchestratorFunction
 
     // --- Timer triggers ---
 
-    [Function("DailyNewspaperScheduler_Age12")]
-    public async Task RunDailyScheduler_Age12(
-        [TimerTrigger("0 0 14 * * *")] TimerInfo timerInfo,
+    // Age 12: 12pm Prague (11:00 UTC) on weekdays
+    [Function("DailyNewspaperScheduler_Age12_Weekdays")]
+    public async Task RunDailyScheduler_Age12_Weekdays(
+        [TimerTrigger("0 0 11 * * 1-5")] TimerInfo timerInfo,
         [DurableClient] DurableTaskClient client,
         FunctionContext context)
     {
         await RunSchedulerForAge(12, client, context);
     }
 
-    [Function("DailyNewspaperScheduler_Age16")]
-    public async Task RunDailyScheduler_Age16(
-        [TimerTrigger("0 0 19 * * *")] TimerInfo timerInfo,
+    // Age 12: 1pm Prague (12:00 UTC) on Saturday
+    [Function("DailyNewspaperScheduler_Age12_Saturday")]
+    public async Task RunDailyScheduler_Age12_Saturday(
+        [TimerTrigger("0 0 12 * * 6")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(12, client, context);
+    }
+
+    // Age 12: 8pm Prague (19:00 UTC) on Sunday
+    [Function("DailyNewspaperScheduler_Age12_Sunday")]
+    public async Task RunDailyScheduler_Age12_Sunday(
+        [TimerTrigger("0 0 19 * * 0")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(12, client, context);
+    }
+
+    // Age 16: 8pm Prague (19:00 UTC) on weekdays
+    [Function("DailyNewspaperScheduler_Age16_Weekdays")]
+    public async Task RunDailyScheduler_Age16_Weekdays(
+        [TimerTrigger("0 0 19 * * 1-5")] TimerInfo timerInfo,
         [DurableClient] DurableTaskClient client,
         FunctionContext context)
     {
         await RunSchedulerForAge(16, client, context);
+    }
+
+    // Age 16: 9pm Prague (20:00 UTC) on weekends
+    [Function("DailyNewspaperScheduler_Age16_Weekends")]
+    public async Task RunDailyScheduler_Age16_Weekends(
+        [TimerTrigger("0 0 20 * * 0,6")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(16, client, context);
+    }
+
+    // Age 35: 7pm Prague (18:00 UTC) on weekdays
+    [Function("DailyNewspaperScheduler_Age35_Weekdays")]
+    public async Task RunDailyScheduler_Age35_Weekdays(
+        [TimerTrigger("0 0 18 * * 1-5")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(35, client, context);
+    }
+
+    // Age 35: 1pm Prague (12:00 UTC) on Saturday
+    [Function("DailyNewspaperScheduler_Age35_Saturday")]
+    public async Task RunDailyScheduler_Age35_Saturday(
+        [TimerTrigger("0 0 12 * * 6")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(35, client, context);
+    }
+
+    // Age 35: 9pm Prague (20:00 UTC) on Sunday
+    [Function("DailyNewspaperScheduler_Age35_Sunday")]
+    public async Task RunDailyScheduler_Age35_Sunday(
+        [TimerTrigger("0 0 20 * * 0")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(35, client, context);
+    }
+
+    // Age 65: 9am Prague (08:00 UTC) on weekdays
+    [Function("DailyNewspaperScheduler_Age65_Weekdays")]
+    public async Task RunDailyScheduler_Age65_Weekdays(
+        [TimerTrigger("0 0 8 * * 1-5")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(65, client, context);
+    }
+
+    // Age 65: 1pm Prague (12:00 UTC) on Saturday
+    [Function("DailyNewspaperScheduler_Age65_Saturday")]
+    public async Task RunDailyScheduler_Age65_Saturday(
+        [TimerTrigger("0 0 12 * * 6")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(65, client, context);
+    }
+
+    // Age 65: 4pm Prague (15:00 UTC) on Sunday
+    [Function("DailyNewspaperScheduler_Age65_Sunday")]
+    public async Task RunDailyScheduler_Age65_Sunday(
+        [TimerTrigger("0 0 15 * * 0")] TimerInfo timerInfo,
+        [DurableClient] DurableTaskClient client,
+        FunctionContext context)
+    {
+        await RunSchedulerForAge(65, client, context);
     }
 
     private async Task RunSchedulerForAge(int age, DurableTaskClient client, FunctionContext context)

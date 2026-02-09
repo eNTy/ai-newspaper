@@ -71,6 +71,8 @@ jobs:
             "INSTAGRAM_API_VERSION=v24.0" \
             "INSTAGRAM_ACCOUNT_ID_12=${{ secrets.INSTAGRAM_ACCOUNT_ID_12 }}" \
             "INSTAGRAM_ACCOUNT_ID_16=${{ secrets.INSTAGRAM_ACCOUNT_ID_16 }}" \
+            "INSTAGRAM_ACCOUNT_ID_35=${{ secrets.INSTAGRAM_ACCOUNT_ID_35 }}" \
+            "INSTAGRAM_ACCOUNT_ID_65=${{ secrets.INSTAGRAM_ACCOUNT_ID_65 }}" \
             "EMAIL_CONNECTION_STRING=${{ secrets.EMAIL_CONNECTION_STRING }}" \
             "NOTIFICATION_EMAIL_TO=${{ secrets.NOTIFICATION_EMAIL_TO }}" \
             "NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }}"
