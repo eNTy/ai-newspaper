@@ -38,7 +38,7 @@ public class TextToSpeechActivity
             new SpeechGenerationOptions
             {
                 ResponseFormat = GeneratedSpeechFormat.Mp3,
-                SpeedRatio = 1.1f
+                SpeedRatio = 1.0f
             });
 
         var audioBytes = speechGeneration.Value.ToArray();
