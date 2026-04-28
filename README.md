@@ -27,12 +27,14 @@ On failure, the orchestrator persists the partial result and sends a notificatio
 
 ## Scheduling
 
-Two daily timer triggers run automatically:
+Timer triggers run automatically. Times are Prague (CET, UTC+1) / UTC:
 
-| Trigger | Age Group | Schedule (UTC) |
-|---------|-----------|----------------|
-| `DailyNewspaperScheduler_Age12` | 12 | 14:00 |
-| `DailyNewspaperScheduler_Age16` | 16 | 19:00 |
+| Trigger | Age | Weekdays | Saturday | Sunday |
+|---------|-----|----------|----------|--------|
+| `DailyNewspaperScheduler_Age12_*` | 12 | 12:00 / 11:00 | 13:00 / 12:00 | 20:00 / 19:00 |
+| `DailyNewspaperScheduler_Age16_*` | 16 | 20:00 / 19:00 | 21:00 / 20:00 | 21:00 / 20:00 |
+| `DailyNewspaperScheduler_Age35_*` | 35 | 19:00 / 18:00 | 13:00 / 12:00 | 21:00 / 20:00 |
+| `DailyNewspaperScheduler_Age65_*` | 65 | 09:00 / 08:00 | 13:00 / 12:00 | 16:00 / 15:00 |
 
 Each run stores output in `age-{age}/{yyyy-MM-dd}/` in the `batch-runs` blob container.
 
@@ -92,7 +94,7 @@ Three GitHub Actions workflows deploy on push to `master`:
 - `AZURE_CREDENTIALS` — Service principal for Azure login
 - `OPENAI_API_KEY` — OpenAI API key
 - `DEFAULT_RSS_URL` — RSS feed URL
-- `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID_12`, `INSTAGRAM_ACCOUNT_ID_16` — Instagram Graph API
+- `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID_12`, `INSTAGRAM_ACCOUNT_ID_16`, `INSTAGRAM_ACCOUNT_ID_35`, `INSTAGRAM_ACCOUNT_ID_65` — Instagram Graph API
 - `EMAIL_CONNECTION_STRING`, `NOTIFICATION_EMAIL_TO`, `NOTIFICATION_EMAIL_FROM` — Azure Communication Services
 
 ## Security

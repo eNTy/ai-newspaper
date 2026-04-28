@@ -69,16 +69,29 @@ Environment variables in `local.settings.json`:
 | `INSTAGRAM_ACCESS_TOKEN` | Instagram Graph API token |
 | `INSTAGRAM_ACCOUNT_ID_12` | Instagram account for age 12 content |
 | `INSTAGRAM_ACCOUNT_ID_16` | Instagram account for age 16 content |
+| `INSTAGRAM_ACCOUNT_ID_35` | Instagram account for age 35 content |
+| `INSTAGRAM_ACCOUNT_ID_65` | Instagram account for age 65 content |
 | `EMAIL_CONNECTION_STRING` | Azure Communication Services connection string |
 | `NOTIFICATION_EMAIL_TO` | Failure notification recipient |
 | `NOTIFICATION_EMAIL_FROM` | Failure notification sender |
 
 ## Scheduling
 
+All times are Prague (CET, UTC+1). During CEST (summer), triggers fire 1 hour earlier in local time.
+
 | Function | CRON | Description |
 |----------|------|-------------|
-| `DailyNewspaperScheduler_Age12` | `0 0 14 * * *` | Age 12, daily at 14:00 UTC |
-| `DailyNewspaperScheduler_Age16` | `0 0 19 * * *` | Age 16, daily at 19:00 UTC |
+| `DailyNewspaperScheduler_Age12_Weekdays` | `0 0 11 * * 1-5` | Age 12, weekdays at 12:00 Prague |
+| `DailyNewspaperScheduler_Age12_Saturday` | `0 0 12 * * 6` | Age 12, Saturday at 13:00 Prague |
+| `DailyNewspaperScheduler_Age12_Sunday` | `0 0 19 * * 0` | Age 12, Sunday at 20:00 Prague |
+| `DailyNewspaperScheduler_Age16_Weekdays` | `0 0 19 * * 1-5` | Age 16, weekdays at 20:00 Prague |
+| `DailyNewspaperScheduler_Age16_Weekends` | `0 0 20 * * 0,6` | Age 16, weekends at 21:00 Prague |
+| `DailyNewspaperScheduler_Age35_Weekdays` | `0 0 18 * * 1-5` | Age 35, weekdays at 19:00 Prague |
+| `DailyNewspaperScheduler_Age35_Saturday` | `0 0 12 * * 6` | Age 35, Saturday at 13:00 Prague |
+| `DailyNewspaperScheduler_Age35_Sunday` | `0 0 20 * * 0` | Age 35, Sunday at 21:00 Prague |
+| `DailyNewspaperScheduler_Age65_Weekdays` | `0 0 8 * * 1-5` | Age 65, weekdays at 09:00 Prague |
+| `DailyNewspaperScheduler_Age65_Saturday` | `0 0 12 * * 6` | Age 65, Saturday at 13:00 Prague |
+| `DailyNewspaperScheduler_Age65_Sunday` | `0 0 15 * * 0` | Age 65, Sunday at 16:00 Prague |
 
 ## HTTP Endpoints
 
