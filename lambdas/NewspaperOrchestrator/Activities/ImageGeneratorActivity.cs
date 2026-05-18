@@ -12,20 +12,17 @@ public class ImageGeneratorActivity
     private readonly ImageClient _imageClient;
     private readonly BlobServiceClient _blobServiceClient;
     private readonly BlobContainerConfig _containerConfig;
-    private readonly IHttpClientFactory _httpClientFactory;
 
     public ImageGeneratorActivity(
         ChatClient chatClient,
         ImageClient imageClient,
         BlobServiceClient blobServiceClient,
-        BlobContainerConfig containerConfig,
-        IHttpClientFactory httpClientFactory)
+        BlobContainerConfig containerConfig)
     {
         _chatClient = chatClient;
         _imageClient = imageClient;
         _blobServiceClient = blobServiceClient;
         _containerConfig = containerConfig;
-        _httpClientFactory = httpClientFactory;
     }
 
     [Function(nameof(GenerateImage))]
@@ -120,25 +117,20 @@ IMPORTANT: The previous attempt was rejected by content policy. Make this versio
                 var refinedPrompt = chatCompletion.Value.Content[0].Text.Trim();
                 logger.LogInformation("Refined image prompt (attempt {attempt}): {prompt}", attempt, refinedPrompt);
 
-                // Generate image with DALL-E
+                // Generate image with gpt-image-1 (returns base64, not URL)
                 var imageGeneration = await _imageClient.GenerateImageAsync(
                     refinedPrompt,
+#pragma warning disable OPENAI001
                     new ImageGenerationOptions
                     {
                         Size = GeneratedImageSize.W1024xH1024,
-                        Quality = GeneratedImageQuality.Standard,
-                        ResponseFormat = GeneratedImageFormat.Uri
+                        Quality = GeneratedImageQuality.Medium,
                     });
+#pragma warning restore OPENAI001
 
-                var imageUrl = imageGeneration.Value.ImageUri;
-                logger.LogInformation("Generated image URL: {url}", imageUrl);
+                var imageBytes = imageGeneration.Value.ImageBytes.ToArray();
 
-                // Download the generated image
-                var httpClient = _httpClientFactory.CreateClient();
-                httpClient.Timeout = TimeSpan.FromMinutes(2);
-                var imageBytes = await httpClient.GetByteArrayAsync(imageUrl);
-
-                logger.LogInformation("Downloaded image: {size} bytes", imageBytes.Length);
+                logger.LogInformation("Generated image: {size} bytes", imageBytes.Length);
 
                 return (imageBytes, refinedPrompt);
             }

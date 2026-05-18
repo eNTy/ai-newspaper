@@ -38,7 +38,7 @@ var host = new HostBuilder()
             ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is not set");
 
         services.AddSingleton(new ChatClient(model: "gpt-4o", apiKey: openAiApiKey));
-        services.AddSingleton(new ImageClient(model: "dall-e-3", apiKey: openAiApiKey));
+        services.AddSingleton(new ImageClient(model: "gpt-image-2", apiKey: openAiApiKey));
         services.AddSingleton(new AudioClient(model: "tts-1", apiKey: openAiApiKey));
 
         // Azure Blob Storage
